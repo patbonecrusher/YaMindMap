@@ -21,6 +21,11 @@ pub enum InteractionState {
     EditingNodeText {
         node_id: NodeId,
     },
+    ResizingNode {
+        node_id: NodeId,
+        start_world_x: f32,
+        original_width: f32,
+    },
 }
 
 impl Default for InteractionState {

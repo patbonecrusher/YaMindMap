@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use iced::event;
 use iced::keyboard;
 use iced::mouse;
 use iced::time;
-use iced::widget::{canvas, container, Canvas};
+use iced::widget::{canvas, container, stack, text_editor, Canvas};
+use iced::window;
 use iced::{Element, Event, Length, Point, Subscription, Task};
 
 use yamind_canvas::interaction::InteractionState;
@@ -37,6 +39,7 @@ pub struct App {
     document: Document,
     selection: Selection,
     history: CommandHistory,
+    file_path: Option<PathBuf>,
 
     // Layout results
     positions: HashMap<NodeId, Rect>,
@@ -55,17 +58,91 @@ pub struct App {
     drop_target: Option<DropTarget>,
     drag_started: bool,
 
+    // Inline text editing state
+    editing_node: Option<NodeId>,
+    editing_content: text_editor::Content,
+    editing_original_text: String,
+
     // Track if we need initial setup
-    needs_initial_fit: bool,
     needs_menu_setup: bool,
     screen_size: (f32, f32),
+    window_position: Option<(f32, f32)>,
+    window_id: Option<window::Id>,
+    /// View state waiting to be applied once we have a window_id.
+    pending_window_restore: Option<yamind_file::ViewState>,
 }
 
 impl App {
     pub fn new() -> (Self, Task<Message>) {
-        let mut doc = Document::with_root("Central Topic");
+        // Install file-open delegate methods on winit's delegate
+        // (must happen after winit creates its delegate, before event loop runs)
+        crate::menu::install_open_handler();
 
-        // Add some demo children
+        // Check if any files were queued (from argv or Apple Events during startup)
+        let pending = crate::open_handler::take_pending_files();
+
+        let (doc, file_path, view_state) = if let Some(path) = pending.into_iter().next() {
+            // Load the file from Finder / argv
+            match std::fs::read_to_string(&path) {
+                Ok(json) => match yamind_file::YaMindFile::from_json(&json) {
+                    Ok(file) => (file.document, Some(path), file.view_state),
+                    Err(e) => {
+                        log::error!("Failed to parse file {}: {}", path.display(), e);
+                        (Self::demo_document(), None, None)
+                    }
+                },
+                Err(e) => {
+                    log::error!("Failed to read file {}: {}", path.display(), e);
+                    (Self::demo_document(), None, None)
+                }
+            }
+        } else {
+            (Self::demo_document(), None, None)
+        };
+
+        let (viewport, screen_size, window_position) = if let Some(ref vs) = view_state {
+            let mut vp = Viewport::new();
+            vp.transform.translation = geo::Vector::new(vs.translation.0, vs.translation.1);
+            vp.transform.scale = vs.scale;
+            (vp, vs.window_size, vs.window_position)
+        } else {
+            (Viewport::new(), (1200.0, 800.0), None)
+        };
+
+        let mut app = Self {
+            document: doc,
+            selection: Selection::new(),
+            history: CommandHistory::new(),
+            file_path,
+            positions: HashMap::new(),
+            edge_routes: HashMap::new(),
+            node_sizes: HashMap::new(),
+            viewport,
+            interaction: InteractionState::Idle,
+            canvas_cache: canvas::Cache::new(),
+            spatial_index: yamind_canvas::SpatialIndex::new(),
+            drop_target: None,
+            drag_started: false,
+            editing_node: None,
+            editing_content: text_editor::Content::new(),
+            editing_original_text: String::new(),
+            needs_menu_setup: true,
+            screen_size,
+            window_position,
+            window_id: None,
+            pending_window_restore: None,
+        };
+
+        app.compute_layout();
+        if view_state.is_none() {
+            app.zoom_to_fit();
+        }
+
+        (app, Task::none())
+    }
+
+    fn demo_document() -> Document {
+        let mut doc = Document::with_root("Central Topic");
         let root_id = doc.root_id.unwrap();
         let c1 = doc.add_child(root_id, "Branch 1");
         let c2 = doc.add_child(root_id, "Branch 2");
@@ -76,28 +153,7 @@ impl App {
         doc.add_child(c3, "Sub-topic 3.1");
         doc.add_child(c3, "Sub-topic 3.2");
         doc.add_child(c3, "Sub-topic 3.3");
-
-        let mut app = Self {
-            document: doc,
-            selection: Selection::new(),
-            history: CommandHistory::new(),
-            positions: HashMap::new(),
-            edge_routes: HashMap::new(),
-            node_sizes: HashMap::new(),
-            viewport: Viewport::new(),
-            interaction: InteractionState::Idle,
-            canvas_cache: canvas::Cache::new(),
-            spatial_index: yamind_canvas::SpatialIndex::new(),
-            drop_target: None,
-            drag_started: false,
-            needs_initial_fit: true,
-            needs_menu_setup: true,
-            screen_size: (800.0, 600.0),
-        };
-
-        app.compute_layout();
-
-        (app, Task::none())
+        doc
     }
 
     fn compute_layout(&mut self) {
@@ -114,10 +170,35 @@ impl App {
             let min_width = resolved.min_width.unwrap_or(60.0);
             let max_width = resolved.max_width.unwrap_or(200.0);
 
-            // Approximate text width: ~0.6 * font_size per character
-            let text_width = node.content.text.len() as f32 * font_size * 0.6;
-            let width = (text_width + padding_h * 2.0).clamp(min_width, max_width);
-            let height = font_size + padding_v * 2.0;
+            let width = if let Some(mw) = node.manual_width {
+                mw.max(min_width)
+            } else {
+                // Measure unwrapped text width to determine natural node width
+                let unwrapped = yamind_canvas::text_measure::measure_text(
+                    &node.content.text, font_size, None,
+                );
+                (unwrapped.width + padding_h * 2.0).clamp(min_width, max_width)
+            };
+
+            // Measure text wrapped within the node's usable width to get height
+            let usable_width = width - padding_h * 2.0;
+            let wrapped = yamind_canvas::text_measure::measure_text(
+                &node.content.text, font_size, Some(usable_width),
+            );
+            let mut height = wrapped.height + padding_v * 2.0;
+
+            // Ellipse/Diamond shapes need extra room — text must fit inside
+            // the inscribed rectangle (factor ≈ √2 ≈ 1.42)
+            let shape = resolved.shape.unwrap_or(yamind_core::style::NodeShape::RoundedRect);
+            let (width, height) = match shape {
+                yamind_core::style::NodeShape::Ellipse
+                | yamind_core::style::NodeShape::Diamond => {
+                    let w = width * 1.42;
+                    height = height * 1.42;
+                    (w.clamp(min_width, max_width.max(w)), height)
+                }
+                _ => (width, height),
+            };
 
             self.node_sizes.insert(*id, geo::Size::new(width, height));
         }
@@ -161,7 +242,16 @@ impl App {
     }
 
     pub fn title(&self) -> String {
-        "YaMindMap".to_string()
+        match &self.file_path {
+            Some(path) => {
+                let name = path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "Untitled".into());
+                format!("{} — YaMindMap", name)
+            }
+            None => "Untitled — YaMindMap".into(),
+        }
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -259,10 +349,19 @@ impl App {
             Message::MenuTick => {
                 if self.needs_menu_setup {
                     self.needs_menu_setup = false;
-                    crate::menu::setup_menu_bar();
+                    crate::menu::init_menus();
+                }
+                // Check for files opened via macOS double-click / Finder
+                let pending = crate::open_handler::take_pending_files();
+                let mut tasks: Vec<Task<Message>> = Vec::new();
+                for path in pending {
+                    tasks.push(self.load_file(&path));
                 }
                 if let Some(menu_msg) = crate::menu::poll_menu_event() {
-                    return self.update(menu_msg);
+                    tasks.push(self.update(menu_msg));
+                }
+                if !tasks.is_empty() {
+                    return Task::batch(tasks);
                 }
             }
             Message::MenuNew => {
@@ -272,13 +371,80 @@ impl App {
                 }
             }
             Message::MenuOpen => {
-                // TODO: open file dialog and load document
+                return self.open_file();
             }
             Message::MenuSave => {
-                // TODO: save current document
+                if self.file_path.is_some() {
+                    self.save_to_current_path();
+                } else {
+                    self.save_as();
+                }
             }
             Message::MenuSaveAs => {
-                // TODO: save as dialog
+                self.save_as();
+            }
+            Message::StartEditing(node_id) => {
+                if let Some(node) = self.document.get_node(&node_id) {
+                    self.editing_original_text = node.content.text.clone();
+                    self.editing_content = text_editor::Content::with_text(&node.content.text);
+                    self.editing_node = Some(node_id);
+                    self.interaction = InteractionState::EditingNodeText { node_id };
+                    // Select all text
+                    self.editing_content.perform(text_editor::Action::SelectAll);
+                    self.canvas_cache.clear();
+                }
+            }
+            Message::TextEditorAction(action) => {
+                if let Some(node_id) = self.editing_node {
+                    self.editing_content.perform(action);
+                    // Sync text back to document (Content::text() appends trailing \n)
+                    let mut text = self.editing_content.text();
+                    if text.ends_with('\n') {
+                        text.pop();
+                    }
+                    if let Some(node) = self.document.get_node_mut(&node_id) {
+                        node.content.text = text;
+                    }
+                    self.compute_layout();
+                }
+            }
+            Message::CommitEditing => {
+                if let Some(_node_id) = self.editing_node.take() {
+                    // Document already has the current text from live updates
+                    self.editing_content = text_editor::Content::new();
+                    self.editing_original_text.clear();
+                    self.interaction = InteractionState::Idle;
+                    self.compute_layout();
+                }
+            }
+            Message::CancelEditing => {
+                if let Some(node_id) = self.editing_node.take() {
+                    // Restore original text
+                    if let Some(node) = self.document.get_node_mut(&node_id) {
+                        node.content.text = std::mem::take(&mut self.editing_original_text);
+                    }
+                    self.editing_content = text_editor::Content::new();
+                    self.interaction = InteractionState::Idle;
+                    self.compute_layout();
+                }
+            }
+            Message::WindowOpened(id, pos) => {
+                eprintln!("[DEBUG] WindowOpened: id={:?} pos=({}, {})", id, pos.x, pos.y);
+                self.window_id = Some(id);
+                self.window_position = Some((pos.x, pos.y));
+                // Apply any pending window restore now that we have the ID
+                return self.apply_pending_window_restore();
+            }
+            Message::WindowResized(id, size) => {
+                eprintln!("[DEBUG] WindowResized: id={:?} {}x{}", id, size.width, size.height);
+                self.window_id = Some(id);
+                self.screen_size = (size.width, size.height);
+                // Apply any pending window restore now that we have the ID
+                return self.apply_pending_window_restore();
+            }
+            Message::WindowMoved(pos) => {
+                eprintln!("[DEBUG] WindowMoved: ({}, {})", pos.x, pos.y);
+                self.window_position = Some((pos.x, pos.y));
             }
         }
 
@@ -288,16 +454,53 @@ impl App {
     fn handle_canvas_event(&mut self, event: CanvasEvent) {
         match event {
             CanvasEvent::LeftPress(pos) => {
+                // If editing, commit on click away
+                if self.editing_node.is_some() {
+                    let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
+                    let clicked_editing_node = self.editing_node
+                        .and_then(|eid| self.spatial_index.hit_test(world).filter(|&hit| hit == eid))
+                        .is_some();
+                    if !clicked_editing_node {
+                        // Commit and fall through to normal click handling
+                        // Document already has the current text from live updates
+                        self.editing_node.take();
+                        self.editing_content = text_editor::Content::new();
+                        self.editing_original_text.clear();
+                        self.interaction = InteractionState::Idle;
+                    } else {
+                        // Clicked on the node being edited — ignore (keep editing)
+                        return;
+                    }
+                }
+
                 let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
                 if let Some(node_id) = self.spatial_index.hit_test(world) {
                     self.selection.select(node_id);
-                    self.interaction = InteractionState::DraggingNode {
-                        node_id,
-                        start_world_pos: world,
-                        current_world_pos: world,
-                    };
-                    self.drag_started = false;
-                    self.drop_target = None;
+
+                    // Check if click is near the right edge → resize
+                    let resize_handle_width = 6.0; // world-space pixels
+                    let is_resize = self.positions.get(&node_id).map_or(false, |rect| {
+                        let right_edge = rect.x + rect.width;
+                        (world.x - right_edge).abs() < resize_handle_width
+                    });
+
+                    if is_resize {
+                        let original_width = self.positions.get(&node_id)
+                            .map_or(100.0, |r| r.width);
+                        self.interaction = InteractionState::ResizingNode {
+                            node_id,
+                            start_world_x: world.x,
+                            original_width,
+                        };
+                    } else {
+                        self.interaction = InteractionState::DraggingNode {
+                            node_id,
+                            start_world_pos: world,
+                            current_world_pos: world,
+                        };
+                        self.drag_started = false;
+                        self.drop_target = None;
+                    }
                 } else {
                     self.selection.clear();
                     self.interaction = InteractionState::Idle;
@@ -313,6 +516,7 @@ impl App {
                         }
                     }
                 }
+                // ResizingNode: width is already applied live, just go idle
                 self.interaction = InteractionState::Idle;
                 self.drag_started = false;
                 self.drop_target = None;
@@ -364,6 +568,18 @@ impl App {
                         self.drop_target = self.compute_drop_target(node_id, world);
                         self.canvas_cache.clear();
                     }
+                    InteractionState::ResizingNode {
+                        node_id,
+                        start_world_x,
+                        original_width,
+                    } => {
+                        let delta = world.x - start_world_x;
+                        let new_width = (original_width + delta).max(40.0);
+                        if let Some(node) = self.document.get_node_mut(&node_id) {
+                            node.manual_width = Some(new_width);
+                        }
+                        self.compute_layout();
+                    }
                     _ => {}
                 }
             }
@@ -381,7 +597,14 @@ impl App {
                 let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
                 if let Some(node_id) = self.spatial_index.hit_test(world) {
                     self.selection.select(node_id);
-                    // TODO: Enter inline text editing mode
+                    if let Some(node) = self.document.get_node(&node_id) {
+                        self.editing_original_text = node.content.text.clone();
+                        self.editing_content = text_editor::Content::with_text(&node.content.text);
+                        self.editing_node = Some(node_id);
+                        // Select all text
+                        self.editing_content.perform(text_editor::Action::SelectAll);
+                        self.interaction = InteractionState::EditingNodeText { node_id };
+                    }
                     self.canvas_cache.clear();
                 }
             }
@@ -505,6 +728,114 @@ impl App {
         self.compute_layout();
     }
 
+    fn build_view_state(&self) -> yamind_file::ViewState {
+        eprintln!(
+            "[DEBUG save] screen_size={:?} window_position={:?} viewport=({:?}, scale={})",
+            self.screen_size,
+            self.window_position,
+            self.viewport.transform.translation,
+            self.viewport.transform.scale,
+        );
+        yamind_file::ViewState {
+            translation: (
+                self.viewport.transform.translation.x,
+                self.viewport.transform.translation.y,
+            ),
+            scale: self.viewport.transform.scale,
+            window_size: self.screen_size,
+            window_position: self.window_position,
+        }
+    }
+
+    fn save_to_current_path(&self) {
+        if let Some(path) = &self.file_path {
+            let file = yamind_file::YaMindFile::with_view_state(
+                self.document.clone(),
+                self.build_view_state(),
+            );
+            match file.to_json() {
+                Ok(json) => {
+                    if let Err(e) = std::fs::write(path, &json) {
+                        log::error!("Failed to save file: {}", e);
+                    }
+                }
+                Err(e) => log::error!("Failed to serialize document: {}", e),
+            }
+        }
+    }
+
+    fn save_as(&mut self) {
+        let dialog = rfd::FileDialog::new()
+            .set_title("Save Mind Map")
+            .add_filter("YaMindMap", &["yamind"])
+            .set_file_name("Untitled.yamind");
+
+        if let Some(path) = dialog.save_file() {
+            self.file_path = Some(path);
+            self.save_to_current_path();
+        }
+    }
+
+    fn open_file(&mut self) -> Task<Message> {
+        let dialog = rfd::FileDialog::new()
+            .set_title("Open Mind Map")
+            .add_filter("YaMindMap", &["yamind"]);
+
+        if let Some(path) = dialog.pick_file() {
+            return self.load_file(&path);
+        }
+        Task::none()
+    }
+
+    fn apply_pending_window_restore(&mut self) -> Task<Message> {
+        let Some(wid) = self.window_id else {
+            return Task::none();
+        };
+        let Some(vs) = self.pending_window_restore.take() else {
+            return Task::none();
+        };
+        eprintln!(
+            "[DEBUG] Applying pending window restore: size=({}, {}), pos={:?}",
+            vs.window_size.0, vs.window_size.1, vs.window_position
+        );
+        let mut tasks = vec![window::resize(
+            wid,
+            iced::Size::new(vs.window_size.0, vs.window_size.1),
+        )];
+        if let Some((x, y)) = vs.window_position {
+            tasks.push(window::move_to(wid, Point::new(x, y)));
+        }
+        Task::batch(tasks)
+    }
+
+    fn load_file(&mut self, path: &std::path::Path) -> Task<Message> {
+        match std::fs::read_to_string(path) {
+            Ok(json) => match yamind_file::YaMindFile::from_json(&json) {
+                Ok(file) => {
+                    self.document = file.document;
+                    self.selection.clear();
+                    self.history = CommandHistory::new();
+                    self.file_path = Some(path.to_path_buf());
+                    self.compute_layout();
+                    if let Some(vs) = file.view_state {
+                        self.viewport.transform.translation =
+                            geo::Vector::new(vs.translation.0, vs.translation.1);
+                        self.viewport.transform.scale = vs.scale;
+                        self.canvas_cache.clear();
+                        // Store for deferred application (window_id might not be ready yet)
+                        self.pending_window_restore = Some(vs);
+                        return self.apply_pending_window_restore();
+                    } else {
+                        self.zoom_to_fit();
+                    }
+                }
+                Err(e) => log::error!("Failed to parse file {}: {}", path.display(), e),
+            },
+            Err(e) => log::error!("Failed to read file {}: {}", path.display(), e),
+        }
+        Task::none()
+    }
+
     pub fn view(&self) -> Element<'_, Message> {
         let drag_ghost = if self.drag_started {
             if let InteractionState::DraggingNode {
@@ -525,6 +856,8 @@ impl App {
             None
         };
 
+        let editing_node_id = self.editing_node;
+
         let canvas = Canvas::new(MindMapProgram {
             viewport: &self.viewport,
             document: &self.document,
@@ -534,9 +867,86 @@ impl App {
             cache: &self.canvas_cache,
             drop_target: &self.drop_target,
             drag_ghost,
+            editing_node_id,
         })
         .width(Length::Fill)
         .height(Length::Fill);
+
+        // If editing, overlay a TextEditor widget at the node's screen position
+        if let Some(node_id) = self.editing_node {
+            if let Some(world_rect) = self.positions.get(&node_id) {
+                let scale = self.viewport.scale();
+                let t = &self.viewport.transform;
+
+                // Convert world rect to screen space
+                let screen_x = (world_rect.x + t.translation.x) * scale;
+                let screen_y = (world_rect.y + t.translation.y) * scale;
+                let screen_w = world_rect.width * scale;
+
+                // Get font size from node style
+                let depth = self.document.depth_of(&node_id);
+                let default_style = self.document.default_styles.for_depth(depth);
+                let node = self.document.get_node(&node_id);
+                let resolved = node
+                    .map(|n| n.style.merged_with(default_style))
+                    .unwrap_or_else(|| default_style.clone());
+                let font_size = resolved.font_size.unwrap_or(14.0) * scale;
+                let padding_h = resolved.padding_h.unwrap_or(12.0) * scale;
+                let padding_v = resolved.padding_v.unwrap_or(8.0) * scale;
+
+                let editor = text_editor(&self.editing_content)
+                    .size(font_size)
+                    .padding(iced::Padding::from([padding_v, padding_h]))
+                    .width(screen_w)
+                    .height(Length::Shrink)
+                    .on_action(|action| Message::TextEditorAction(action))
+                    .key_binding(|key_press| {
+                        let text_editor::KeyPress { key, modifiers, .. } = &key_press;
+                        match key.as_ref() {
+                            keyboard::Key::Named(keyboard::key::Named::Enter) => {
+                                if modifiers.shift() {
+                                    // Shift+Enter → newline
+                                    Some(text_editor::Binding::Enter)
+                                } else {
+                                    // Enter → commit
+                                    Some(text_editor::Binding::Custom(Message::CommitEditing))
+                                }
+                            }
+                            keyboard::Key::Named(keyboard::key::Named::Escape) => {
+                                Some(text_editor::Binding::Custom(Message::CancelEditing))
+                            }
+                            _ => text_editor::Binding::from_key_press(key_press),
+                        }
+                    })
+                    .style(|theme, status| {
+                        let mut style = text_editor::default(theme, status);
+                        style.background = iced::Background::Color(iced::Color::from_rgba(0.15, 0.15, 0.2, 0.95));
+                        style.border = iced::Border {
+                            color: iced::Color::from_rgb(1.0, 0.8, 0.0),
+                            width: 2.0,
+                            radius: 4.0.into(),
+                        };
+                        style.value = iced::Color::WHITE;
+                        style.selection = iced::Color::from_rgba(0.3, 0.5, 0.9, 0.5);
+                        style
+                    });
+
+                // Position the editor using padding as offset
+                let pad_left = screen_x.max(0.0);
+                let pad_top = screen_y.max(0.0);
+
+                let clipped_editor = container(editor).clip(true);
+                let positioned_editor = container(clipped_editor)
+                    .padding(iced::padding::top(pad_top).left(pad_left))
+                    .width(Length::Fill)
+                    .height(Length::Fill);
+
+                return stack![canvas, positioned_editor]
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into();
+            }
+        }
 
         container(canvas)
             .width(Length::Fill)
@@ -545,16 +955,7 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        let keyboard_sub = event::listen_with(|event, _status, _id| match event {
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key,
-                modifiers,
-                ..
-            }) => shortcuts::handle_key(key, modifiers),
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => None,
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) => None,
-            _ => None,
-        });
+        let keyboard_sub = event::listen_with(Self::handle_normal_event);
 
         // Poll for native menu events every 50ms
         let menu_sub = time::every(std::time::Duration::from_millis(50))
@@ -562,6 +963,33 @@ impl App {
 
         Subscription::batch([keyboard_sub, menu_sub])
     }
+
+    fn handle_normal_event(event: Event, status: event::Status, id: window::Id) -> Option<Message> {
+        match event {
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key,
+                modifiers,
+                ..
+            }) => {
+                // Don't fire shortcuts when a widget (e.g. TextEditor) captured the event
+                if status == event::Status::Captured {
+                    return None;
+                }
+                shortcuts::handle_key(key, modifiers)
+            }
+            Event::Window(window::Event::Opened { position, .. }) => {
+                position.map(|pos| Message::WindowOpened(id, pos))
+            }
+            Event::Window(window::Event::Resized(size)) => {
+                Some(Message::WindowResized(id, size))
+            }
+            Event::Window(window::Event::Moved(pos)) => {
+                Some(Message::WindowMoved(pos))
+            }
+            _ => None,
+        }
+    }
+
 }
 
 /// Info about an active node drag, passed to the canvas for rendering.
@@ -584,6 +1012,8 @@ struct MindMapProgram<'a> {
     cache: &'a canvas::Cache,
     drop_target: &'a Option<DropTarget>,
     drag_ghost: Option<DragGhostInfo>,
+    #[allow(dead_code)]
+    editing_node_id: Option<NodeId>,
 }
 
 impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
@@ -621,7 +1051,20 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                     }
                     state.last_click_time = std::time::Instant::now();
                     state.last_click_pos = Some(cursor_pos);
-                    state.dragging = true;
+                    // Check if clicking near a node's right edge → resize
+                    let world = self.viewport.screen_to_world(
+                        geo::Point::new(cursor_pos.x, cursor_pos.y),
+                    );
+                    let resize_handle_width = 6.0;
+                    let is_resize = self.positions.values().any(|rect| {
+                        rect.contains(world)
+                            && (world.x - (rect.x + rect.width)).abs() < resize_handle_width
+                    });
+                    if is_resize {
+                        state.resizing = true;
+                    } else {
+                        state.dragging = true;
+                    }
                     (
                         canvas::event::Status::Captured,
                         Some(Message::CanvasEvent(CanvasEvent::LeftPress(cursor_pos))),
@@ -629,6 +1072,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                 }
                 mouse::Event::ButtonReleased(mouse::Button::Left) => {
                     state.dragging = false;
+                    state.resizing = false;
                     (
                         canvas::event::Status::Captured,
                         Some(Message::CanvasEvent(CanvasEvent::LeftRelease(cursor_pos))),
@@ -664,7 +1108,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                     )
                 }
                 mouse::Event::CursorMoved { .. } => {
-                    if state.panning || state.dragging {
+                    if state.panning || state.dragging || state.resizing {
                         (
                             canvas::event::Status::Captured,
                             Some(Message::CanvasEvent(CanvasEvent::CursorMoved(cursor_pos))),
@@ -729,6 +1173,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                 selection: self.selection,
                 positions: self.positions,
                 edge_routes: self.edge_routes,
+                editing_node_id: self.editing_node_id,
             };
             draw_canvas(frame, self.viewport, &data);
         });
@@ -764,14 +1209,23 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
             return mouse::Interaction::Grabbing;
         }
 
+        if state.resizing {
+            return mouse::Interaction::ResizingHorizontally;
+        }
+
         if let Some(cursor_pos) = cursor.position_in(bounds) {
             let world = self
                 .viewport
                 .screen_to_world(geo::Point::new(cursor_pos.x, cursor_pos.y));
             // Check if cursor is over a node
             // (We don't have access to spatial_index here, so we check positions directly)
+            let resize_handle_width = 6.0;
             for (_, rect) in self.positions {
                 if rect.contains(world) {
+                    let right_edge = rect.x + rect.width;
+                    if (world.x - right_edge).abs() < resize_handle_width {
+                        return mouse::Interaction::ResizingHorizontally;
+                    }
                     if state.dragging {
                         return mouse::Interaction::Grabbing;
                     }
@@ -788,6 +1242,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
 pub struct CanvasInteractionState {
     dragging: bool,
     panning: bool,
+    resizing: bool,
     cmd_held: bool,
     last_click_time: std::time::Instant,
     last_click_pos: Option<Point>,
@@ -798,6 +1253,7 @@ impl Default for CanvasInteractionState {
         Self {
             dragging: false,
             panning: false,
+            resizing: false,
             cmd_held: false,
             last_click_time: std::time::Instant::now(),
             last_click_pos: None,

@@ -30,6 +30,8 @@ pub struct MindMapNode {
     pub collapsed: bool,
     /// Manual position override (if user has dragged the node).
     pub manual_position: Option<(f32, f32)>,
+    /// Manual width override (if user has resized the node).
+    pub manual_width: Option<f32>,
     /// Computed bounds from layout engine — not serialized.
     #[serde(skip)]
     pub computed_bounds: Option<Rect>,
@@ -45,6 +47,7 @@ impl MindMapNode {
             style: NodeStyle::empty(),
             collapsed: false,
             manual_position: None,
+            manual_width: None,
             computed_bounds: None,
         }
     }

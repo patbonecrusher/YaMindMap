@@ -5,6 +5,7 @@ pub mod interaction;
 pub mod node_renderer;
 pub mod program;
 pub mod selection_renderer;
+pub mod text_measure;
 pub mod viewport;
 
 pub use hit_test::SpatialIndex;

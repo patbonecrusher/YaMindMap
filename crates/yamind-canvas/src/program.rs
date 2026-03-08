@@ -4,7 +4,7 @@ use iced::mouse;
 use iced::widget::canvas;
 use iced::widget::canvas::event::{self, Event};
 use iced::widget::canvas::{Cache, Geometry};
-use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
+use iced::{Color, Rectangle, Renderer, Theme};
 
 use yamind_core::edge::BezierRoute;
 use yamind_core::geometry::{self as geo, Rect};
@@ -97,6 +97,8 @@ pub struct CanvasData<'a> {
     pub selection: &'a Selection,
     pub positions: &'a HashMap<NodeId, Rect>,
     pub edge_routes: &'a HashMap<(NodeId, NodeId), BezierRoute>,
+    /// Node currently being edited (skip canvas rendering — overlaid by TextEditor).
+    pub editing_node_id: Option<NodeId>,
 }
 
 impl canvas::Program<CanvasMessage> for MindMapCanvas {
@@ -156,9 +158,6 @@ pub fn draw_canvas(
         transform.translation.y,
     ));
 
-    // Draw background grid
-    draw_grid(frame, viewport, frame.size());
-
     // Draw edges
     let edge_color = Color::from_rgb(
         data.document.default_edge_style.color.r,
@@ -173,6 +172,10 @@ pub fn draw_canvas(
 
     // Draw nodes
     for (id, rect) in data.positions {
+        // Skip the node being edited — it's overlaid by a TextEditor widget
+        if data.editing_node_id == Some(*id) {
+            continue;
+        }
         let Some(node) = data.document.get_node(id) else {
             continue;
         };
@@ -193,43 +196,3 @@ pub fn draw_canvas(
     }
 }
 
-fn draw_grid(frame: &mut canvas::Frame, viewport: &Viewport, size: Size) {
-    use iced::widget::canvas::{Path, Stroke};
-
-    let grid_size = 50.0;
-    let grid_color = Color::from_rgba(0.5, 0.5, 0.5, 0.1);
-
-    // Calculate visible world bounds (approximate)
-    let tl = viewport.screen_to_world(geo::Point::new(0.0, 0.0));
-    let br = viewport.screen_to_world(geo::Point::new(
-        size.width / viewport.scale(),
-        size.height / viewport.scale(),
-    ));
-
-    let start_x = (tl.x / grid_size).floor() * grid_size;
-    let start_y = (tl.y / grid_size).floor() * grid_size;
-
-    let mut x = start_x;
-    while x < br.x {
-        let path = Path::line(Point::new(x, tl.y), Point::new(x, br.y));
-        frame.stroke(
-            &path,
-            Stroke::default()
-                .with_color(grid_color)
-                .with_width(0.5),
-        );
-        x += grid_size;
-    }
-
-    let mut y = start_y;
-    while y < br.y {
-        let path = Path::line(Point::new(tl.x, y), Point::new(br.x, y));
-        frame.stroke(
-            &path,
-            Stroke::default()
-                .with_color(grid_color)
-                .with_width(0.5),
-        );
-        y += grid_size;
-    }
-}
