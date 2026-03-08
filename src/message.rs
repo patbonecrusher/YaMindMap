@@ -24,6 +24,9 @@ pub enum CanvasEvent {
     MiddlePress(iced::Point),
     MiddleRelease,
     CursorMoved(iced::Point),
-    Scroll(f32, iced::Point),
+    /// Two-finger scroll → pan (dx, dy in pixels)
+    ScrollPan(f32, f32),
+    /// Cmd + two-finger scroll → zoom (delta_y, cursor position)
+    ScrollZoom(f32, iced::Point),
     DoubleClick(iced::Point),
 }

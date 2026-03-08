@@ -340,7 +340,11 @@ impl App {
                     _ => {}
                 }
             }
-            CanvasEvent::Scroll(delta_y, pos) => {
+            CanvasEvent::ScrollPan(dx, dy) => {
+                self.viewport.pan(geo::Vector::new(dx, dy));
+                self.canvas_cache.clear();
+            }
+            CanvasEvent::ScrollZoom(delta_y, pos) => {
                 let factor = if delta_y > 0.0 { 1.1 } else { 1.0 / 1.1 };
                 self.viewport
                     .zoom(factor, geo::Point::new(pos.x, pos.y));
@@ -361,60 +365,67 @@ impl App {
     }
 
     /// Determine where a dragged node should be dropped based on cursor position.
+    ///
+    /// - Cursor above/below a node → reorder as sibling (bezier to parent)
+    /// - Cursor left/right of a node → reparent as child (bezier to that node)
     fn compute_drop_target(&self, dragged_id: NodeId, cursor: geo::Point) -> Option<DropTarget> {
-        // Find the node under the cursor (excluding the dragged node itself)
-        let hover_id = self.positions.iter().find_map(|(id, rect)| {
-            if *id != dragged_id && rect.contains(cursor) {
-                Some(*id)
+        // Find the nearest node (excluding dragged node and its descendants)
+        let mut best: Option<(NodeId, f32)> = None;
+        for (id, rect) in &self.positions {
+            if *id == dragged_id || self.document.is_ancestor_of(dragged_id, *id) {
+                continue;
+            }
+            let center = rect.center();
+            let dist = cursor.distance_to(center);
+            if best.map_or(true, |(_, d)| dist < d) {
+                best = Some((*id, dist));
+            }
+        }
+
+        let (nearest_id, _) = best?;
+        let nearest_rect = self.positions.get(&nearest_id)?;
+        let nearest_node = self.document.get_node(&nearest_id)?;
+        let center = nearest_rect.center();
+
+        // Direction from the nearest node's center to the cursor
+        let dx = (cursor.x - center.x).abs();
+        let dy = (cursor.y - center.y).abs();
+
+        // If cursor is more horizontal than vertical relative to the node → reparent as child
+        // If cursor is more vertical → reorder as sibling
+        let is_horizontal = dx > dy;
+
+        if is_horizontal {
+            // Left/right of a node → become child of that node
+            Some(DropTarget::OnNode { parent: nearest_id })
+        } else {
+            // Above/below a node → reorder as sibling of that node
+            if let Some(parent_id) = nearest_node.parent {
+                let parent = self.document.get_node(&parent_id)?;
+                let idx = parent
+                    .children
+                    .iter()
+                    .position(|c| *c == nearest_id)
+                    .unwrap_or(0);
+
+                if cursor.y < center.y {
+                    // Above → insert before
+                    Some(DropTarget::BeforeSibling {
+                        parent: parent_id,
+                        index: idx,
+                    })
+                } else {
+                    // Below → insert after
+                    Some(DropTarget::BeforeSibling {
+                        parent: parent_id,
+                        index: idx + 1,
+                    })
+                }
             } else {
-                None
-            }
-        })?;
-
-        let hover_rect = self.positions.get(&hover_id)?;
-        let hover_node = self.document.get_node(&hover_id)?;
-
-        // Determine drop zone based on vertical position within the hovered node.
-        // Top 25%: insert before this sibling
-        // Middle 50%: reparent (become child of this node)
-        // Bottom 25%: insert after this sibling
-        let relative_y = (cursor.y - hover_rect.y) / hover_rect.height;
-
-        if let Some(parent_id) = hover_node.parent {
-            if relative_y < 0.25 {
-                // Insert before this sibling
-                let parent = self.document.get_node(&parent_id)?;
-                let idx = parent
-                    .children
-                    .iter()
-                    .position(|c| *c == hover_id)
-                    .unwrap_or(0);
-                return Some(DropTarget::BeforeSibling {
-                    parent: parent_id,
-                    index: idx,
-                });
-            } else if relative_y > 0.75 {
-                // Insert after this sibling
-                let parent = self.document.get_node(&parent_id)?;
-                let idx = parent
-                    .children
-                    .iter()
-                    .position(|c| *c == hover_id)
-                    .unwrap_or(0);
-                return Some(DropTarget::BeforeSibling {
-                    parent: parent_id,
-                    index: idx + 1,
-                });
+                // Nearest is root, can't reorder root — reparent as child instead
+                Some(DropTarget::OnNode { parent: nearest_id })
             }
         }
-
-        // Middle zone or root node: reparent as child
-        // Don't allow dropping onto the dragged node's own descendant
-        if self.document.is_ancestor_of(dragged_id, hover_id) {
-            return None;
-        }
-
-        Some(DropTarget::OnNode { parent: hover_id })
     }
 
     /// Execute the drop operation as an undoable command.
@@ -524,8 +535,9 @@ impl App {
 #[derive(Debug, Clone)]
 struct DragGhostInfo {
     node_id: NodeId,
-    /// Offset from the node's layout center to the drag start point.
+    /// Current cursor position in world space.
     world_pos: geo::Point,
+    /// Drag start position in world space.
     start_world_pos: geo::Point,
 }
 
@@ -629,20 +641,42 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                     }
                 }
                 mouse::Event::WheelScrolled { delta } => {
-                    let delta_y = match delta {
-                        mouse::ScrollDelta::Lines { y, .. } => y,
-                        mouse::ScrollDelta::Pixels { y, .. } => y / 50.0,
-                    };
-                    (
-                        canvas::event::Status::Captured,
-                        Some(Message::CanvasEvent(CanvasEvent::Scroll(
-                            delta_y,
-                            cursor_pos,
-                        ))),
-                    )
+                    if state.cmd_held {
+                        // Cmd + two-finger scroll → zoom
+                        let delta_y = match delta {
+                            mouse::ScrollDelta::Lines { y, .. } => y,
+                            mouse::ScrollDelta::Pixels { y, .. } => y / 50.0,
+                        };
+                        (
+                            canvas::event::Status::Captured,
+                            Some(Message::CanvasEvent(CanvasEvent::ScrollZoom(
+                                delta_y,
+                                cursor_pos,
+                            ))),
+                        )
+                    } else {
+                        // Two-finger scroll → pan
+                        let (dx, dy) = match delta {
+                            mouse::ScrollDelta::Lines { x, y } => (x * 20.0, y * 20.0),
+                            mouse::ScrollDelta::Pixels { x, y } => (x, y),
+                        };
+                        (
+                            canvas::event::Status::Captured,
+                            Some(Message::CanvasEvent(CanvasEvent::ScrollPan(dx, dy))),
+                        )
+                    }
                 }
                 _ => (canvas::event::Status::Ignored, None),
             },
+            canvas::Event::Keyboard(kb_event) => {
+                match kb_event {
+                    keyboard::Event::ModifiersChanged(mods) => {
+                        state.cmd_held = mods.command();
+                    }
+                    _ => {}
+                }
+                (canvas::event::Status::Ignored, None)
+            }
             _ => (canvas::event::Status::Ignored, None),
         }
     }
@@ -668,29 +702,17 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
 
         let mut layers = vec![geometry];
 
-        // Layer 2: uncached drag overlay (ghost node + drop indicator)
+        // Layer 2: uncached drag overlay (ghost node + connector line + drop indicator)
         if let Some(ref ghost) = self.drag_ghost {
             let mut overlay = canvas::Frame::new(renderer, bounds.size());
 
-            // Draw drop indicator
-            if let Some(target) = self.drop_target {
-                let scale = self.viewport.scale();
-                let t = &self.viewport.transform;
-                overlay.scale(scale);
-                overlay.translate(iced::Vector::new(t.translation.x, t.translation.y));
-                draw_drop_indicator(&mut overlay, self.positions, self.document, target);
-                // Reset transform for the ghost (we'll apply it manually)
-                overlay.translate(iced::Vector::new(-t.translation.x, -t.translation.y));
-                overlay.scale(1.0 / scale);
-            }
-
-            // Draw the ghost node at the cursor position
-            draw_drag_ghost(
+            draw_drag_overlay(
                 &mut overlay,
                 self.viewport,
-                self.document,
                 self.positions,
+                self.document,
                 ghost,
+                self.drop_target,
             );
 
             layers.push(overlay.into_geometry());
@@ -733,6 +755,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
 pub struct CanvasInteractionState {
     dragging: bool,
     panning: bool,
+    cmd_held: bool,
     last_click_time: std::time::Instant,
     last_click_pos: Option<Point>,
 }
@@ -742,6 +765,7 @@ impl Default for CanvasInteractionState {
         Self {
             dragging: false,
             panning: false,
+            cmd_held: false,
             last_click_time: std::time::Instant::now(),
             last_click_pos: None,
         }
@@ -822,14 +846,18 @@ fn draw_drop_indicator(
     }
 }
 
-/// Draw a semi-transparent ghost of the dragged node at the cursor position.
-fn draw_drag_ghost(
+/// Draw the ghost node following the cursor, and a bezier connector + drop
+/// indicator when close to another node.
+fn draw_drag_overlay(
     frame: &mut canvas::Frame,
     viewport: &Viewport,
-    document: &Document,
     positions: &HashMap<NodeId, Rect>,
+    document: &Document,
     ghost: &DragGhostInfo,
+    drop_target: &Option<DropTarget>,
 ) {
+    use iced::widget::canvas::{Path, Stroke};
+    use iced::Color;
     use yamind_canvas::node_renderer;
 
     let Some(node) = document.get_node(&ghost.node_id) else {
@@ -839,11 +867,12 @@ fn draw_drag_ghost(
         return;
     };
 
-    // Compute the offset: how far the cursor moved in world space
+    let scale = viewport.scale();
+    let t = &viewport.transform;
+
+    // Ghost position in world space: original rect shifted by drag delta
     let dx = ghost.world_pos.x - ghost.start_world_pos.x;
     let dy = ghost.world_pos.y - ghost.start_world_pos.y;
-
-    // Ghost rect = original rect shifted by the drag delta, then transformed to screen space
     let ghost_world = Rect::new(
         original_rect.x + dx,
         original_rect.y + dy,
@@ -851,10 +880,7 @@ fn draw_drag_ghost(
         original_rect.height,
     );
 
-    // Transform to screen space
-    let scale = viewport.scale();
-    let t = &viewport.transform;
-
+    // Ghost rect in screen space
     let screen_rect = Rect::new(
         (ghost_world.x + t.translation.x) * scale,
         (ghost_world.y + t.translation.y) * scale,
@@ -862,21 +888,20 @@ fn draw_drag_ghost(
         ghost_world.height * scale,
     );
 
-    // Save frame state, apply alpha
+    // Draw the ghost node (semi-transparent)
     frame.with_save(|frame| {
         let depth = document.depth_of(&ghost.node_id);
         let default_style = document.default_styles.for_depth(depth);
         let mut resolved = node.style.merged_with(default_style);
 
-        // Make the ghost semi-transparent
-        if let Some(ref mut fill) = resolved.fill_color {
-            fill.a *= 0.5;
+        if let Some(ref mut c) = resolved.fill_color {
+            c.a *= 0.5;
         }
-        if let Some(ref mut stroke) = resolved.stroke_color {
-            stroke.a *= 0.5;
+        if let Some(ref mut c) = resolved.stroke_color {
+            c.a *= 0.5;
         }
-        if let Some(ref mut font_color) = resolved.font_color {
-            font_color.a *= 0.5;
+        if let Some(ref mut c) = resolved.font_color {
+            c.a *= 0.5;
         }
 
         node_renderer::draw_node(
@@ -888,4 +913,55 @@ fn draw_drag_ghost(
             scale,
         );
     });
+
+    // If there's a drop target, draw a bezier from ghost to target + indicator
+    if let Some(target) = drop_target {
+        // BeforeSibling → bezier goes to the parent (we're becoming a sibling)
+        // OnNode → bezier goes to that node (we're becoming its child)
+        let bezier_target_id = match target {
+            DropTarget::OnNode { parent } => Some(*parent),
+            DropTarget::BeforeSibling { parent, .. } => Some(*parent),
+        };
+        let target_node_id = bezier_target_id;
+
+        if let Some(tid) = target_node_id {
+            if let Some(target_rect) = positions.get(&tid) {
+                let ghost_center = screen_rect.center();
+                let target_center = target_rect.center();
+
+                let src = iced::Point::new(ghost_center.x, ghost_center.y);
+                let dst = iced::Point::new(
+                    (target_center.x + t.translation.x) * scale,
+                    (target_center.y + t.translation.y) * scale,
+                );
+
+                let color = Color::from_rgba(0.2, 0.8, 0.2, 0.8);
+
+                // Bezier curve from ghost to target
+                let cdx = (dst.x - src.x) * 0.4;
+                let ctrl1 = iced::Point::new(src.x + cdx, src.y);
+                let ctrl2 = iced::Point::new(dst.x - cdx, dst.y);
+
+                let path = Path::new(|builder| {
+                    builder.move_to(src);
+                    builder.bezier_curve_to(ctrl1, ctrl2, dst);
+                });
+                frame.stroke(
+                    &path,
+                    Stroke::default().with_color(color).with_width(2.5),
+                );
+
+                // Small dot at the target end
+                let dot = Path::circle(dst, 4.0);
+                frame.fill(&dot, color);
+            }
+        }
+
+        // Drop indicator (highlight / insertion line) in world space
+        frame.with_save(|frame| {
+            frame.scale(scale);
+            frame.translate(iced::Vector::new(t.translation.x, t.translation.y));
+            draw_drop_indicator(frame, positions, document, target);
+        });
+    }
 }
