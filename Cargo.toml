@@ -44,6 +44,13 @@ iced = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png"] }
+muda = "0.17"
+rfd = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSMenu", "NSMenuItem", "NSRunningApplication"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSThread"] }
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 winresource = "0.1"

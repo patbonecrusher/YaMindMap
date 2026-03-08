@@ -14,6 +14,12 @@ pub enum Message {
     ZoomToFit,
     // Canvas interaction
     CanvasEvent(CanvasEvent),
+    // Menu actions
+    MenuNew,
+    MenuOpen,
+    MenuSave,
+    MenuSaveAs,
+    MenuTick,
 }
 
 #[derive(Debug, Clone)]

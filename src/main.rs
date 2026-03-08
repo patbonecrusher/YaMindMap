@@ -1,5 +1,6 @@
 mod app;
 mod context_menu;
+mod menu;
 mod message;
 mod shortcuts;
 mod sidebar;

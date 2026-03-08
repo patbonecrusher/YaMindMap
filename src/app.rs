@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use iced::event;
 use iced::keyboard;
 use iced::mouse;
+use iced::time;
 use iced::widget::{canvas, container, Canvas};
 use iced::{Element, Event, Length, Point, Subscription, Task};
 
@@ -54,8 +55,9 @@ pub struct App {
     drop_target: Option<DropTarget>,
     drag_started: bool,
 
-    // Track if we need initial zoom-to-fit
+    // Track if we need initial setup
     needs_initial_fit: bool,
+    needs_menu_setup: bool,
     screen_size: (f32, f32),
 }
 
@@ -89,6 +91,7 @@ impl App {
             drop_target: None,
             drag_started: false,
             needs_initial_fit: true,
+            needs_menu_setup: true,
             screen_size: (800.0, 600.0),
         };
 
@@ -252,6 +255,30 @@ impl App {
             },
             Message::CanvasEvent(canvas_event) => {
                 self.handle_canvas_event(canvas_event);
+            }
+            Message::MenuTick => {
+                if self.needs_menu_setup {
+                    self.needs_menu_setup = false;
+                    crate::menu::setup_menu_bar();
+                }
+                if let Some(menu_msg) = crate::menu::poll_menu_event() {
+                    return self.update(menu_msg);
+                }
+            }
+            Message::MenuNew => {
+                // Launch a new instance of the app
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).spawn();
+                }
+            }
+            Message::MenuOpen => {
+                // TODO: open file dialog and load document
+            }
+            Message::MenuSave => {
+                // TODO: save current document
+            }
+            Message::MenuSaveAs => {
+                // TODO: save as dialog
             }
         }
 
@@ -518,7 +545,7 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        event::listen_with(|event, _status, _id| match event {
+        let keyboard_sub = event::listen_with(|event, _status, _id| match event {
             Event::Keyboard(keyboard::Event::KeyPressed {
                 key,
                 modifiers,
@@ -527,7 +554,13 @@ impl App {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => None,
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) => None,
             _ => None,
-        })
+        });
+
+        // Poll for native menu events every 50ms
+        let menu_sub = time::every(std::time::Duration::from_millis(50))
+            .map(|_| Message::MenuTick);
+
+        Subscription::batch([keyboard_sub, menu_sub])
     }
 }
 
