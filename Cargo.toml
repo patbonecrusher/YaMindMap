@@ -43,3 +43,7 @@ yamind-canvas = { workspace = true }
 iced = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+winresource = "0.1"
