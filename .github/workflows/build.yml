@@ -60,10 +60,16 @@ jobs:
           targets: x86_64-pc-windows-msvc
       - name: Build
         run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: Package
+        run: |
+          mkdir dist
+          copy target\x86_64-pc-windows-msvc\release\yamindmap.exe dist\
+          cd dist && tar -a -cf ..\YaMindMap-windows-x64.zip yamindmap.exe
+        shell: cmd
       - uses: actions/upload-artifact@v4
         with:
           name: YaMindMap-windows-x64
-          path: target/x86_64-pc-windows-msvc/release/yamindmap.exe
+          path: YaMindMap-windows-x64.zip
 
   build-windows-arm:
     runs-on: windows-latest
@@ -74,10 +80,16 @@ jobs:
           targets: aarch64-pc-windows-msvc
       - name: Build
         run: cargo build --release --target aarch64-pc-windows-msvc
+      - name: Package
+        run: |
+          mkdir dist
+          copy target\aarch64-pc-windows-msvc\release\yamindmap.exe dist\
+          cd dist && tar -a -cf ..\YaMindMap-windows-arm64.zip yamindmap.exe
+        shell: cmd
       - uses: actions/upload-artifact@v4
         with:
           name: YaMindMap-windows-arm64
-          path: target/aarch64-pc-windows-msvc/release/yamindmap.exe
+          path: YaMindMap-windows-arm64.zip
 
   build-linux-x64:
     runs-on: ubuntu-latest
@@ -141,7 +153,7 @@ jobs:
         with:
           files: |
             YaMindMap-macos-arm64/YaMindMap-macos-arm64.tar.gz
-            YaMindMap-windows-x64/yamindmap.exe
-            YaMindMap-windows-arm64/yamindmap.exe
+            YaMindMap-windows-x64/YaMindMap-windows-x64.zip
+            YaMindMap-windows-arm64/YaMindMap-windows-arm64.zip
             YaMindMap-linux-x64/YaMindMap-linux-x64.tar.gz
             YaMindMap-linux-arm64/YaMindMap-linux-arm64.tar.gz
