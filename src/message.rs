@@ -2,6 +2,7 @@ use yamind_canvas::CanvasMessage;
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    #[allow(dead_code)]
     Canvas(CanvasMessage),
     // Keyboard shortcuts
     AddChild,
@@ -20,12 +21,25 @@ pub enum Message {
     MenuSave,
     MenuSaveAs,
     MenuTick,
+    // Inline text editing
+    #[allow(dead_code)]
+    StartEditing(yamind_core::id::NodeId),
+    TextEditorAction(iced::widget::text_editor::Action),
+    CommitEditing,
+    CancelEditing,
+    // Trackpad pinch zoom (delta, cursor_x, cursor_y)
+    PinchZoom(f32, f32, f32),
+    // Window events
+    WindowOpened(iced::window::Id, iced::Point),
+    WindowResized(iced::window::Id, iced::Size),
+    WindowMoved(iced::Point),
 }
 
 #[derive(Debug, Clone)]
 pub enum CanvasEvent {
     LeftPress(iced::Point),
     LeftRelease(iced::Point),
+    #[allow(dead_code)]
     RightPress(iced::Point),
     MiddlePress(iced::Point),
     MiddleRelease,

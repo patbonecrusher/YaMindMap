@@ -77,6 +77,7 @@ impl App {
         // Install file-open delegate methods on winit's delegate
         // (must happen after winit creates its delegate, before event loop runs)
         crate::menu::install_open_handler();
+        crate::menu::install_magnify_handler();
 
         // Check if any files were queued (from argv or Apple Events during startup)
         let pending = crate::open_handler::take_pending_files();
@@ -346,6 +347,12 @@ impl App {
             Message::CanvasEvent(canvas_event) => {
                 self.handle_canvas_event(canvas_event);
             }
+            Message::PinchZoom(delta, x, y) => {
+                // delta is the macOS magnification value: positive = zoom in, negative = zoom out
+                let factor = 1.0 + delta;
+                self.viewport.zoom(factor, geo::Point::new(x, y));
+                self.canvas_cache.clear();
+            }
             Message::MenuTick => {
                 if self.needs_menu_setup {
                     self.needs_menu_setup = false;
@@ -359,6 +366,10 @@ impl App {
                 }
                 if let Some(menu_msg) = crate::menu::poll_menu_event() {
                     tasks.push(self.update(menu_msg));
+                }
+                // Poll for trackpad pinch (magnify) gestures
+                while let Some((delta, x, y)) = crate::menu::poll_magnify() {
+                    tasks.push(self.update(Message::PinchZoom(delta, x, y)));
                 }
                 if !tasks.is_empty() {
                     return Task::batch(tasks);
