@@ -514,7 +514,11 @@ impl App {
                     }
                 } else {
                     self.selection.clear();
-                    self.interaction = InteractionState::Idle;
+                    // Start rubber band selection on empty space
+                    self.interaction = InteractionState::RubberBandSelect {
+                        start_world_pos: world,
+                        current_world_pos: world,
+                    };
                 }
                 self.canvas_cache.clear();
             }
@@ -527,7 +531,20 @@ impl App {
                         }
                     }
                 }
-                // ResizingNode: width is already applied live, just go idle
+                // Rubber band: select all nodes within the rectangle
+                if let InteractionState::RubberBandSelect {
+                    start_world_pos,
+                    current_world_pos,
+                } = &self.interaction
+                {
+                    let rect = geo::Rect::from_points(*start_world_pos, *current_world_pos);
+                    self.selection.clear();
+                    for (id, node_rect) in &self.positions {
+                        if rect.intersects(node_rect) {
+                            self.selection.add(*id);
+                        }
+                    }
+                }
                 self.interaction = InteractionState::Idle;
                 self.drag_started = false;
                 self.drop_target = None;
@@ -590,6 +607,23 @@ impl App {
                             node.manual_width = Some(new_width);
                         }
                         self.compute_layout();
+                    }
+                    InteractionState::RubberBandSelect {
+                        start_world_pos, ..
+                    } => {
+                        self.interaction = InteractionState::RubberBandSelect {
+                            start_world_pos,
+                            current_world_pos: world,
+                        };
+                        // Live-update selection as the rectangle changes
+                        let rect = geo::Rect::from_points(start_world_pos, world);
+                        self.selection.clear();
+                        for (id, node_rect) in &self.positions {
+                            if rect.intersects(node_rect) {
+                                self.selection.add(*id);
+                            }
+                        }
+                        self.canvas_cache.clear();
                     }
                     _ => {}
                 }
@@ -869,6 +903,16 @@ impl App {
 
         let editing_node_id = self.editing_node;
 
+        let rubber_band = if let InteractionState::RubberBandSelect {
+            start_world_pos,
+            current_world_pos,
+        } = &self.interaction
+        {
+            Some((*start_world_pos, *current_world_pos))
+        } else {
+            None
+        };
+
         let canvas = Canvas::new(MindMapProgram {
             viewport: &self.viewport,
             document: &self.document,
@@ -878,6 +922,7 @@ impl App {
             cache: &self.canvas_cache,
             drop_target: &self.drop_target,
             drag_ghost,
+            rubber_band,
             editing_node_id,
         })
         .width(Length::Fill)
@@ -889,18 +934,35 @@ impl App {
                 let scale = self.viewport.scale();
                 let t = &self.viewport.transform;
 
-                // Convert world rect to screen space
-                let screen_x = (world_rect.x + t.translation.x) * scale;
-                let screen_y = (world_rect.y + t.translation.y) * scale;
-                let screen_w = world_rect.width * scale;
-
-                // Get font size from node style
+                // Get node style info
                 let depth = self.document.depth_of(&node_id);
                 let default_style = self.document.default_styles.for_depth(depth);
                 let node = self.document.get_node(&node_id);
                 let resolved = node
                     .map(|n| n.style.merged_with(default_style))
                     .unwrap_or_else(|| default_style.clone());
+                let shape = resolved.shape.unwrap_or(yamind_core::style::NodeShape::RoundedRect);
+
+                // For ellipse/diamond, the text area is the inscribed rectangle
+                let (text_x, text_y, text_w, text_h) = match shape {
+                    yamind_core::style::NodeShape::Ellipse
+                    | yamind_core::style::NodeShape::Diamond => {
+                        let factor = 1.0 / 1.42; // inverse of the 1.42 expansion
+                        let tw = world_rect.width * factor;
+                        let th = world_rect.height * factor;
+                        let tx = world_rect.x + (world_rect.width - tw) / 2.0;
+                        let ty = world_rect.y + (world_rect.height - th) / 2.0;
+                        (tx, ty, tw, th)
+                    }
+                    _ => (world_rect.x, world_rect.y, world_rect.width, world_rect.height),
+                };
+
+                // Convert to screen space
+                let screen_x = (text_x + t.translation.x) * scale;
+                let screen_y = (text_y + t.translation.y) * scale;
+                let screen_w = text_w * scale;
+                let _screen_h = text_h * scale;
+
                 let font_size = resolved.font_size.unwrap_or(14.0) * scale;
                 let padding_h = resolved.padding_h.unwrap_or(12.0) * scale;
                 let padding_v = resolved.padding_v.unwrap_or(8.0) * scale;
@@ -1025,6 +1087,7 @@ struct MindMapProgram<'a> {
     drag_ghost: Option<DragGhostInfo>,
     #[allow(dead_code)]
     editing_node_id: Option<NodeId>,
+    rubber_band: Option<(geo::Point, geo::Point)>,
 }
 
 impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
@@ -1067,14 +1130,17 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                         geo::Point::new(cursor_pos.x, cursor_pos.y),
                     );
                     let resize_handle_width = 6.0;
+                    let hit_node = self.positions.values().any(|rect| rect.contains(world));
                     let is_resize = self.positions.values().any(|rect| {
                         rect.contains(world)
                             && (world.x - (rect.x + rect.width)).abs() < resize_handle_width
                     });
                     if is_resize {
                         state.resizing = true;
-                    } else {
+                    } else if hit_node {
                         state.dragging = true;
+                    } else {
+                        state.rubber_banding = true;
                     }
                     (
                         canvas::event::Status::Captured,
@@ -1084,6 +1150,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                 mouse::Event::ButtonReleased(mouse::Button::Left) => {
                     state.dragging = false;
                     state.resizing = false;
+                    state.rubber_banding = false;
                     (
                         canvas::event::Status::Captured,
                         Some(Message::CanvasEvent(CanvasEvent::LeftRelease(cursor_pos))),
@@ -1119,7 +1186,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                     )
                 }
                 mouse::Event::CursorMoved { .. } => {
-                    if state.panning || state.dragging || state.resizing {
+                    if state.panning || state.dragging || state.resizing || state.rubber_banding {
                         (
                             canvas::event::Status::Captured,
                             Some(Message::CanvasEvent(CanvasEvent::CursorMoved(cursor_pos))),
@@ -1207,6 +1274,46 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
             layers.push(overlay.into_geometry());
         }
 
+        // Layer 3: rubber band selection rectangle
+        if let Some((start, end)) = self.rubber_band {
+            let mut overlay = canvas::Frame::new(renderer, bounds.size());
+            let scale = self.viewport.scale();
+            let t = &self.viewport.transform;
+
+            let s = iced::Point::new(
+                (start.x + t.translation.x) * scale,
+                (start.y + t.translation.y) * scale,
+            );
+            let e = iced::Point::new(
+                (end.x + t.translation.x) * scale,
+                (end.y + t.translation.y) * scale,
+            );
+            let x = s.x.min(e.x);
+            let y = s.y.min(e.y);
+            let w = (s.x - e.x).abs();
+            let h = (s.y - e.y).abs();
+
+            if w > 1.0 || h > 1.0 {
+                use iced::widget::canvas::{Path, Stroke};
+                let rect_path = Path::rectangle(
+                    iced::Point::new(x, y),
+                    iced::Size::new(w, h),
+                );
+                overlay.fill(
+                    &rect_path,
+                    iced::Color::from_rgba(0.3, 0.5, 0.9, 0.15),
+                );
+                overlay.stroke(
+                    &rect_path,
+                    Stroke::default()
+                        .with_color(iced::Color::from_rgba(0.3, 0.5, 0.9, 0.6))
+                        .with_width(1.5),
+                );
+            }
+
+            layers.push(overlay.into_geometry());
+        }
+
         layers
     }
 
@@ -1254,6 +1361,7 @@ pub struct CanvasInteractionState {
     dragging: bool,
     panning: bool,
     resizing: bool,
+    rubber_banding: bool,
     cmd_held: bool,
     last_click_time: std::time::Instant,
     last_click_pos: Option<Point>,
@@ -1265,6 +1373,7 @@ impl Default for CanvasInteractionState {
             dragging: false,
             panning: false,
             resizing: false,
+            rubber_banding: false,
             cmd_held: false,
             last_click_time: std::time::Instant::now(),
             last_click_pos: None,

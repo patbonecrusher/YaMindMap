@@ -90,6 +90,18 @@ impl Rect {
         Self { x, y, width, height }
     }
 
+    /// Create a rect from two corner points (in any order).
+    pub fn from_points(a: Point, b: Point) -> Self {
+        let x = a.x.min(b.x);
+        let y = a.y.min(b.y);
+        Self {
+            x,
+            y,
+            width: (a.x - b.x).abs(),
+            height: (a.y - b.y).abs(),
+        }
+    }
+
     pub fn from_center(center: Point, size: Size) -> Self {
         Self {
             x: center.x - size.width / 2.0,
