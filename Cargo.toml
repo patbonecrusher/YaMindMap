@@ -40,17 +40,16 @@ yamind-core = { workspace = true }
 yamind-layout = { workspace = true }
 yamind-commands = { workspace = true }
 yamind-canvas = { workspace = true }
+yamind-file = { workspace = true }
 iced = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png"] }
-muda = "0.17"
 rfd = { workspace = true }
+libc = "0.2"
 
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSMenu", "NSMenuItem", "NSRunningApplication"] }
-objc2-foundation = { version = "0.3", features = ["NSString", "NSThread"] }
+[build-dependencies]
+cc = "1"
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 winresource = "0.1"

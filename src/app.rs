@@ -488,11 +488,16 @@ impl App {
                 if let Some(node_id) = self.spatial_index.hit_test(world) {
                     self.selection.select(node_id);
 
-                    // Check if click is near the right edge → resize
+                    // Check if click is near the outer edge → resize
+                    // (left edge for left-side nodes, right edge for right-side nodes)
                     let resize_handle_width = 6.0; // world-space pixels
+                    let is_left_side = self.is_left_of_root(&node_id);
                     let is_resize = self.positions.get(&node_id).map_or(false, |rect| {
-                        let right_edge = rect.x + rect.width;
-                        (world.x - right_edge).abs() < resize_handle_width
+                        if is_left_side {
+                            (world.x - rect.x).abs() < resize_handle_width
+                        } else {
+                            (world.x - (rect.x + rect.width)).abs() < resize_handle_width
+                        }
                     });
 
                     if is_resize {
@@ -602,7 +607,12 @@ impl App {
                         original_width,
                     } => {
                         let delta = world.x - start_world_x;
-                        let new_width = (original_width + delta).max(40.0);
+                        // Left-side nodes grow when dragging left (negative delta)
+                        let new_width = if self.is_left_of_root(&node_id) {
+                            (original_width - delta).max(40.0)
+                        } else {
+                            (original_width + delta).max(40.0)
+                        };
                         if let Some(node) = self.document.get_node_mut(&node_id) {
                             node.manual_width = Some(new_width);
                         }
@@ -657,6 +667,17 @@ impl App {
                 // TODO: Context menu
             }
         }
+    }
+
+    /// Check if a node is positioned to the left of the root node.
+    fn is_left_of_root(&self, node_id: &NodeId) -> bool {
+        let root_center_x = self.document.root_id
+            .and_then(|rid| self.positions.get(&rid))
+            .map(|r| r.center().x)
+            .unwrap_or(0.0);
+        self.positions.get(node_id)
+            .map(|r| r.center().x < root_center_x)
+            .unwrap_or(false)
     }
 
     /// Determine where a dragged node should be dropped based on cursor position.
@@ -1130,10 +1151,21 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                         geo::Point::new(cursor_pos.x, cursor_pos.y),
                     );
                     let resize_handle_width = 6.0;
+                    let root_center_x = self.document.root_id
+                        .and_then(|rid| self.positions.get(&rid))
+                        .map(|r| r.center().x)
+                        .unwrap_or(0.0);
                     let hit_node = self.positions.values().any(|rect| rect.contains(world));
-                    let is_resize = self.positions.values().any(|rect| {
-                        rect.contains(world)
-                            && (world.x - (rect.x + rect.width)).abs() < resize_handle_width
+                    let is_resize = self.positions.iter().any(|(id, rect)| {
+                        if !rect.contains(world) || self.document.root_id == Some(*id) {
+                            return false;
+                        }
+                        let is_left = rect.center().x < root_center_x;
+                        if is_left {
+                            (world.x - rect.x).abs() < resize_handle_width
+                        } else {
+                            (world.x - (rect.x + rect.width)).abs() < resize_handle_width
+                        }
                     });
                     if is_resize {
                         state.resizing = true;
@@ -1338,10 +1370,21 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
             // Check if cursor is over a node
             // (We don't have access to spatial_index here, so we check positions directly)
             let resize_handle_width = 6.0;
-            for (_, rect) in self.positions {
+            let root_center_x = self.document.root_id
+                .and_then(|rid| self.positions.get(&rid))
+                .map(|r| r.center().x)
+                .unwrap_or(0.0);
+            for (id, rect) in self.positions {
                 if rect.contains(world) {
-                    let right_edge = rect.x + rect.width;
-                    if (world.x - right_edge).abs() < resize_handle_width {
+                    let is_left = rect.center().x < root_center_x;
+                    let on_resize_edge = if is_left {
+                        (world.x - rect.x).abs() < resize_handle_width
+                    } else {
+                        (world.x - (rect.x + rect.width)).abs() < resize_handle_width
+                    };
+                    // Don't show resize on root node
+                    let is_root = self.document.root_id == Some(*id);
+                    if on_resize_edge && !is_root {
                         return mouse::Interaction::ResizingHorizontally;
                     }
                     if state.dragging {
@@ -1520,6 +1563,7 @@ fn draw_drag_overlay(
             &node.content.text,
             false,
             scale,
+            false, // ghost node alignment doesn't matter
         );
     });
 

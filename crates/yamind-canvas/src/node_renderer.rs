@@ -12,6 +12,7 @@ pub fn draw_node(
     text: &str,
     is_selected: bool,
     _scale: f32,
+    is_left_of_root: bool,
 ) {
     let shape = style.shape.unwrap_or(NodeShape::RoundedRect);
     let fill = to_iced_color(
@@ -163,9 +164,18 @@ pub fn draw_node(
     let text_y = bounds.y + (bounds.height - total_text_height) / 2.0;
 
     for (i, visual_line) in visual_lines.iter().enumerate() {
-        // Measure each line to center it horizontally
+        // Measure each line for horizontal alignment
         let line_size = text_measure::measure_text(visual_line, font_size, None);
-        let text_x = bounds.x + (bounds.width - line_size.width) / 2.0;
+        let text_x = if shape == NodeShape::Ellipse || shape == NodeShape::Diamond {
+            // Always center text in ellipse/diamond
+            bounds.x + (bounds.width - line_size.width) / 2.0
+        } else if is_left_of_root {
+            // Right-align text for nodes left of root
+            bounds.x + bounds.width - padding_h - line_size.width
+        } else {
+            // Left-align text for nodes right of root (and root itself)
+            bounds.x + padding_h
+        };
 
         let text_pos = Point::new(text_x, text_y + i as f32 * line_height);
         let label = Text {

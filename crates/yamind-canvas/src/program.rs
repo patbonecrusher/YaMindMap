@@ -185,6 +185,12 @@ pub fn draw_canvas(
         let resolved_style = node.style.merged_with(default_style);
         let is_selected = data.selection.is_selected(id);
 
+        // Check if this node is to the left of root (for right-aligning text)
+        let is_left_of_root = data.document.root_id
+            .and_then(|rid| data.positions.get(&rid))
+            .map(|root_rect| rect.center().x < root_rect.center().x)
+            .unwrap_or(false);
+
         node_renderer::draw_node(
             frame,
             rect,
@@ -192,6 +198,7 @@ pub fn draw_canvas(
             &node.content.text,
             is_selected,
             scale,
+            is_left_of_root,
         );
     }
 }

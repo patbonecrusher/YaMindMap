@@ -62,8 +62,33 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
             <array>
                 <string>yamind</string>
             </array>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.yamindmap.yamind</string>
+            </array>
             <key>CFBundleTypeIconFile</key>
             <string>yamindmap</string>
+        </dict>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.yamindmap.yamind</string>
+            <key>UTTypeDescription</key>
+            <string>YaMindMap Document</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.json</string>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>yamind</string>
+                </array>
+            </dict>
         </dict>
     </array>
 </dict>
