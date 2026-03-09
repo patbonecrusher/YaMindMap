@@ -9,6 +9,9 @@ void yamindmap_native_early_init(void);
 /// Call from App::new() — after winit creates its delegate, before event loop runs.
 void yamindmap_native_install_open_handler(void);
 
+/// Set the application icon from PNG data (used in About panel).
+void yamindmap_native_set_icon(const unsigned char* png_data, unsigned long png_len);
+
 /// Initialize native macOS menus and mark app as ready.
 /// Call AFTER iced/winit event loop is running (deferred).
 void yamindmap_native_init_menus(const char* version);

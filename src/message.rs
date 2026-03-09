@@ -1,4 +1,5 @@
 use yamind_canvas::CanvasMessage;
+use yamind_core::id::NodeId;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -8,6 +9,10 @@ pub enum Message {
     AddChild,
     AddSibling,
     DeleteSelected,
+    DeleteWithChildren(NodeId),
+    DeleteKeepChildren(NodeId),
+    CancelDelete,
+    ToggleFold,
     Undo,
     Redo,
     ZoomIn,

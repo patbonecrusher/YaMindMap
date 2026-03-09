@@ -10,5 +10,6 @@ pub use command::Command;
 pub use composite::CompositeCommand;
 pub use history::CommandHistory;
 pub use node_cmds::{
-    AddChildCommand, AddSiblingCommand, DeleteNodeCommand, EditTextCommand, MoveNodeCommand,
+    AddChildCommand, AddSiblingCommand, DeleteAndReparentCommand, DeleteNodeCommand,
+    EditTextCommand, MoveNodeCommand,
 };

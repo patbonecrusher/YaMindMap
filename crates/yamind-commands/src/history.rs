@@ -20,6 +20,13 @@ impl CommandHistory {
         self.redo_stack.clear();
     }
 
+    /// Push a command that has already been executed (e.g. when we need to
+    /// inspect the result before pushing to history).
+    pub fn push_executed(&mut self, cmd: Box<dyn Command>) {
+        self.undo_stack.push(cmd);
+        self.redo_stack.clear();
+    }
+
     pub fn undo(&mut self, doc: &mut Document) -> bool {
         if let Some(mut cmd) = self.undo_stack.pop() {
             cmd.undo(doc);
@@ -37,6 +44,13 @@ impl CommandHistory {
             true
         } else {
             false
+        }
+    }
+
+    /// Update the text on the last command in the undo stack.
+    pub fn update_last_text(&mut self, text: String) {
+        if let Some(cmd) = self.undo_stack.last_mut() {
+            cmd.set_text(text);
         }
     }
 

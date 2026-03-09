@@ -4,7 +4,7 @@ use iced::mouse;
 use iced::widget::canvas;
 use iced::widget::canvas::event::{self, Event};
 use iced::widget::canvas::{Cache, Geometry};
-use iced::{Color, Rectangle, Renderer, Theme};
+use iced::{Color, Point, Rectangle, Renderer, Theme};
 
 use yamind_core::edge::BezierRoute;
 use yamind_core::geometry::{self as geo, Rect};
@@ -99,6 +99,8 @@ pub struct CanvasData<'a> {
     pub edge_routes: &'a HashMap<(NodeId, NodeId), BezierRoute>,
     /// Node currently being edited (skip canvas rendering — overlaid by TextEditor).
     pub editing_node_id: Option<NodeId>,
+    /// Node currently hovered (for showing collapse button).
+    pub hover_node_id: Option<NodeId>,
 }
 
 impl canvas::Program<CanvasMessage> for MindMapCanvas {
@@ -200,6 +202,42 @@ pub fn draw_canvas(
             scale,
             is_left_of_root,
         );
+
+        // Draw fold/unfold badge
+        if !node.children.is_empty() && !node.is_root() {
+            let should_draw = node.collapsed || data.hover_node_id == Some(*id);
+            if should_draw {
+                let badge_r = 8.0;
+                let badge_x = if is_left_of_root {
+                    rect.x - badge_r - 2.0
+                } else {
+                    rect.x + rect.width + badge_r + 2.0
+                };
+                let badge_y = rect.y + rect.height / 2.0;
+                let badge = iced::widget::canvas::Path::circle(
+                    Point::new(badge_x, badge_y),
+                    badge_r,
+                );
+                let (badge_color, badge_text, font_size) = if node.collapsed {
+                    (Color::from_rgb(0.9, 0.6, 0.1), format!("{}", node.children.len()), 11.0)
+                } else {
+                    (Color::from_rgb(0.4, 0.4, 0.45), "−".to_string(), 13.0)
+                };
+                frame.fill(&badge, badge_color);
+                let text_size = crate::text_measure::measure_text(&badge_text, font_size, None);
+                let label = iced::widget::canvas::Text {
+                    content: badge_text,
+                    position: Point::new(
+                        badge_x - text_size.width / 2.0,
+                        badge_y - text_size.height / 2.0,
+                    ),
+                    color: Color::WHITE,
+                    size: font_size.into(),
+                    ..iced::widget::canvas::Text::default()
+                };
+                frame.fill_text(label);
+            }
+        }
     }
 }
 

@@ -5,7 +5,7 @@ use iced::event;
 use iced::keyboard;
 use iced::mouse;
 use iced::time;
-use iced::widget::{canvas, container, stack, text_editor, Canvas};
+use iced::widget::{button, canvas, column, container, row, stack, text, text_editor, Canvas};
 use iced::window;
 use iced::{Element, Event, Length, Point, Subscription, Task};
 
@@ -14,7 +14,8 @@ use yamind_canvas::program::{draw_canvas, CanvasData};
 use yamind_canvas::viewport::Viewport;
 use yamind_canvas::CanvasMessage;
 use yamind_commands::{
-    AddChildCommand, AddSiblingCommand, CommandHistory, DeleteNodeCommand, MoveNodeCommand,
+    AddChildCommand, AddSiblingCommand, Command, CommandHistory, DeleteAndReparentCommand,
+    DeleteNodeCommand, EditTextCommand, MoveNodeCommand,
 };
 use yamind_core::geometry::{self as geo, Rect};
 use yamind_core::id::NodeId;
@@ -58,10 +59,17 @@ pub struct App {
     drop_target: Option<DropTarget>,
     drag_started: bool,
 
+    // Hover state (for fold/unfold badges)
+    hover_node: Option<NodeId>,
+
+    // Delete confirmation dialog
+    pending_delete: Option<NodeId>,
+
     // Inline text editing state
     editing_node: Option<NodeId>,
     editing_content: text_editor::Content,
     editing_original_text: String,
+    editing_is_new_node: bool,
 
     // Track if we need initial setup
     needs_menu_setup: bool,
@@ -124,9 +132,12 @@ impl App {
             spatial_index: yamind_canvas::SpatialIndex::new(),
             drop_target: None,
             drag_started: false,
+            hover_node: None,
+            pending_delete: None,
             editing_node: None,
             editing_content: text_editor::Content::new(),
             editing_original_text: String::new(),
+            editing_is_new_node: false,
             needs_menu_setup: true,
             screen_size,
             window_position,
@@ -256,28 +267,65 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        // When the delete dialog is open, only allow dialog-related messages
+        if self.pending_delete.is_some() {
+            match &message {
+                Message::DeleteWithChildren(_)
+                | Message::DeleteKeepChildren(_)
+                | Message::CancelDelete => {} // allow these through
+                _ => return Task::none(),
+            }
+        }
         match message {
             Message::AddChild => {
                 if let Some(selected_id) = self.selection.single() {
-                    self.history
-                        .execute(Box::new(AddChildCommand::new(selected_id, "New Topic")), &mut self.document);
+                    let mut cmd = AddChildCommand::new(selected_id, "");
+                    cmd.execute(&mut self.document);
+                    let new_id = cmd.created_id().unwrap();
+                    self.history.push_executed(Box::new(cmd));
                     self.compute_layout();
+                    self.start_editing_new_node(new_id);
+                    return iced::widget::focus_next();
                 }
             }
             Message::AddSibling => {
                 if let Some(selected_id) = self.selection.single() {
                     if !self.document.get_node(&selected_id).map_or(true, |n| n.is_root()) {
-                        self.history.execute(
-                            Box::new(AddSiblingCommand::new(selected_id, "New Topic")),
-                            &mut self.document,
-                        );
-                        self.compute_layout();
+                        let mut cmd = AddSiblingCommand::new(selected_id, "");
+                        cmd.execute(&mut self.document);
+                        if let Some(new_id) = cmd.created_id() {
+                            self.history.push_executed(Box::new(cmd));
+                            self.compute_layout();
+                            self.start_editing_new_node(new_id);
+                            return iced::widget::focus_next();
+                        }
                     }
                 }
             }
+            Message::ToggleFold => {
+                // Toggle collapsed state for all selected nodes that have children
+                for node_id in self.selection.nodes.clone() {
+                    if let Some(node) = self.document.get_node_mut(&node_id) {
+                        if !node.children.is_empty() {
+                            node.collapsed = !node.collapsed;
+                        }
+                    }
+                }
+                self.compute_layout();
+            }
             Message::DeleteSelected => {
                 if let Some(selected_id) = self.selection.single() {
-                    if !self.document.get_node(&selected_id).map_or(true, |n| n.is_root()) {
+                    // Can't delete root node
+                    if self.document.get_node(&selected_id).map_or(true, |n| n.is_root()) {
+                        return Task::none();
+                    }
+                    let has_children = self.document.get_node(&selected_id)
+                        .map_or(false, |n| !n.children.is_empty());
+                    if has_children {
+                        // Show confirmation dialog
+                        self.pending_delete = Some(selected_id);
+                    } else {
+                        // No children — delete immediately
                         self.history.execute(
                             Box::new(DeleteNodeCommand::new(selected_id)),
                             &mut self.document,
@@ -286,6 +334,27 @@ impl App {
                         self.compute_layout();
                     }
                 }
+            }
+            Message::DeleteWithChildren(node_id) => {
+                self.pending_delete = None;
+                self.history.execute(
+                    Box::new(DeleteNodeCommand::new(node_id)),
+                    &mut self.document,
+                );
+                self.selection.clear();
+                self.compute_layout();
+            }
+            Message::DeleteKeepChildren(node_id) => {
+                self.pending_delete = None;
+                self.history.execute(
+                    Box::new(DeleteAndReparentCommand::new(node_id)),
+                    &mut self.document,
+                );
+                self.selection.clear();
+                self.compute_layout();
+            }
+            Message::CancelDelete => {
+                self.pending_delete = None;
             }
             Message::Undo => {
                 self.history.undo(&mut self.document);
@@ -345,7 +414,7 @@ impl App {
                 _ => {}
             },
             Message::CanvasEvent(canvas_event) => {
-                self.handle_canvas_event(canvas_event);
+                return self.handle_canvas_event(canvas_event);
             }
             Message::PinchZoom(delta, x, y) => {
                 // delta is the macOS magnification value: positive = zoom in, negative = zoom out
@@ -356,6 +425,8 @@ impl App {
             Message::MenuTick => {
                 if self.needs_menu_setup {
                     self.needs_menu_setup = false;
+                    const ICON_PNG: &[u8] = include_bytes!("../assets/icons/yamindmap_256.png");
+                    crate::menu::set_icon(ICON_PNG);
                     crate::menu::init_menus();
                 }
                 // Check for files opened via macOS double-click / Finder
@@ -420,21 +491,24 @@ impl App {
                 }
             }
             Message::CommitEditing => {
-                if let Some(_node_id) = self.editing_node.take() {
-                    // Document already has the current text from live updates
-                    self.editing_content = text_editor::Content::new();
-                    self.editing_original_text.clear();
-                    self.interaction = InteractionState::Idle;
-                    self.compute_layout();
-                }
+                self.commit_editing();
             }
             Message::CancelEditing => {
                 if let Some(node_id) = self.editing_node.take() {
-                    // Restore original text
-                    if let Some(node) = self.document.get_node_mut(&node_id) {
-                        node.content.text = std::mem::take(&mut self.editing_original_text);
+                    let is_new_node = self.editing_is_new_node;
+                    self.editing_is_new_node = false;
+
+                    if is_new_node {
+                        // Cancel on a new node → undo the add entirely
+                        self.history.undo(&mut self.document);
+                    } else {
+                        // Restore original text
+                        if let Some(node) = self.document.get_node_mut(&node_id) {
+                            node.content.text = std::mem::take(&mut self.editing_original_text);
+                        }
                     }
                     self.editing_content = text_editor::Content::new();
+                    self.editing_original_text.clear();
                     self.interaction = InteractionState::Idle;
                     self.compute_layout();
                 }
@@ -462,7 +536,7 @@ impl App {
         Task::none()
     }
 
-    fn handle_canvas_event(&mut self, event: CanvasEvent) {
+    fn handle_canvas_event(&mut self, event: CanvasEvent) -> Task<Message> {
         match event {
             CanvasEvent::LeftPress(pos, shift_held) => {
                 // If editing, commit on click away
@@ -472,26 +546,32 @@ impl App {
                         .and_then(|eid| self.spatial_index.hit_test(world).filter(|&hit| hit == eid))
                         .is_some();
                     if !clicked_editing_node {
-                        // Commit and fall through to normal click handling
-                        // Document already has the current text from live updates
-                        self.editing_node.take();
-                        self.editing_content = text_editor::Content::new();
-                        self.editing_original_text.clear();
-                        self.interaction = InteractionState::Idle;
+                        // Commit via command for undo support
+                        self.commit_editing();
                     } else {
                         // Clicked on the node being edited — ignore (keep editing)
-                        return;
+                        return Task::none();
                     }
                 }
 
                 let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
+
+                // Check if clicking a fold/unfold badge
+                if let Some(node_id) = self.hit_test_fold_badge(world) {
+                    if let Some(node) = self.document.get_node_mut(&node_id) {
+                        node.collapsed = !node.collapsed;
+                    }
+                    self.compute_layout();
+                    return Task::none();
+                }
+
                 if let Some(node_id) = self.spatial_index.hit_test(world) {
                     if shift_held {
                         // Shift-click → toggle selection (add/remove)
                         self.selection.toggle(node_id);
                         // If we just deselected, don't start drag/resize
                         if !self.selection.is_selected(&node_id) {
-                            return;
+                            return Task::none();
                         }
                     } else if !self.selection.is_selected(&node_id) {
                         // Not shift, not already selected → single-select
@@ -605,7 +685,7 @@ impl App {
                         if !self.drag_started {
                             let dist = start_world_pos.distance_to(world);
                             if dist < DRAG_THRESHOLD {
-                                return;
+                                return Task::none();
                             }
                             self.drag_started = true;
                         }
@@ -665,7 +745,21 @@ impl App {
                         }
                         self.canvas_cache.clear();
                     }
-                    _ => {}
+                    _ => {
+                        // Update hover state for fold/unfold badges
+                        // Include badge area in hover detection
+                        let mut new_hover = self.spatial_index.hit_test(world);
+                        if new_hover.is_none() {
+                            // Check if cursor is over any badge
+                            if let Some(badge_node) = self.hit_test_fold_badge(world) {
+                                new_hover = Some(badge_node);
+                            }
+                        }
+                        if new_hover != self.hover_node {
+                            self.hover_node = new_hover;
+                            self.canvas_cache.clear();
+                        }
+                    }
                 }
             }
             CanvasEvent::ScrollPan(dx, dy) => {
@@ -691,11 +785,61 @@ impl App {
                         self.interaction = InteractionState::EditingNodeText { node_id };
                     }
                     self.canvas_cache.clear();
+                    return iced::widget::focus_next();
                 }
             }
             CanvasEvent::RightPress(_pos) => {
                 // TODO: Context menu
             }
+        }
+        Task::none()
+    }
+
+    /// Start editing a newly created node (no separate edit command needed).
+    fn start_editing_new_node(&mut self, node_id: NodeId) {
+        self.selection.select(node_id);
+        self.editing_original_text.clear();
+        self.editing_content = text_editor::Content::new();
+        self.editing_node = Some(node_id);
+        self.editing_is_new_node = true;
+        self.interaction = InteractionState::EditingNodeText { node_id };
+        self.canvas_cache.clear();
+    }
+
+    /// Commit the current text edit via command history for undo support.
+    fn commit_editing(&mut self) {
+        if let Some(node_id) = self.editing_node.take() {
+            let mut new_text = self.editing_content.text();
+            if new_text.ends_with('\n') {
+                new_text.pop();
+            }
+            let old_text = std::mem::take(&mut self.editing_original_text);
+            let is_new_node = self.editing_is_new_node;
+            self.editing_is_new_node = false;
+
+            if is_new_node {
+                // Update the AddChild/AddSiblingCommand on the undo stack so redo
+                // recreates the node with the final text.
+                self.history.update_last_text(new_text.clone());
+                if let Some(node) = self.document.get_node_mut(&node_id) {
+                    node.content.text = new_text;
+                }
+            } else {
+                // For existing nodes, restore original text then apply via command
+                if let Some(node) = self.document.get_node_mut(&node_id) {
+                    node.content.text = old_text.clone();
+                }
+                if new_text != old_text {
+                    self.history.execute(
+                        Box::new(EditTextCommand::new(node_id, new_text)),
+                        &mut self.document,
+                    );
+                }
+            }
+
+            self.editing_content = text_editor::Content::new();
+            self.interaction = InteractionState::Idle;
+            self.compute_layout();
         }
     }
 
@@ -708,6 +852,43 @@ impl App {
         self.positions.get(node_id)
             .map(|r| r.center().x < root_center_x)
             .unwrap_or(false)
+    }
+
+    /// Compute the center of a node's fold/unfold badge in world space.
+    fn fold_badge_center(&self, node_id: &NodeId) -> Option<geo::Point> {
+        let rect = self.positions.get(node_id)?;
+        let node = self.document.get_node(node_id)?;
+        if node.children.is_empty() || node.is_root() {
+            return None;
+        }
+        let badge_r = 8.0;
+        let is_left = self.is_left_of_root(node_id);
+        let badge_x = if is_left {
+            rect.x - badge_r - 2.0
+        } else {
+            rect.x + rect.width + badge_r + 2.0
+        };
+        let badge_y = rect.y + rect.height / 2.0;
+        Some(geo::Point::new(badge_x, badge_y))
+    }
+
+    /// Hit-test fold/unfold badges. Returns the node_id if a badge was clicked.
+    fn hit_test_fold_badge(&self, world: geo::Point) -> Option<NodeId> {
+        let badge_r = 10.0; // slightly larger hit area than visual
+        for (id, _) in &self.positions {
+            let Some(node) = self.document.get_node(id) else { continue };
+            // Badge is visible when collapsed OR when hovered with children
+            let visible = node.collapsed || (self.hover_node == Some(*id) && !node.children.is_empty());
+            if !visible {
+                continue;
+            }
+            if let Some(center) = self.fold_badge_center(id) {
+                if world.distance_to(center) <= badge_r {
+                    return Some(*id);
+                }
+            }
+        }
+        None
     }
 
     /// Determine where a dragged node should be dropped based on cursor position.
@@ -975,6 +1156,7 @@ impl App {
             drag_ghost,
             rubber_band,
             editing_node_id,
+            hover_node_id: self.hover_node,
         })
         .width(Length::Fill)
         .height(Length::Fill);
@@ -1065,14 +1247,110 @@ impl App {
                     .width(Length::Fill)
                     .height(Length::Fill);
 
-                return stack![canvas, positioned_editor]
+                let base = stack![canvas, positioned_editor]
                     .width(Length::Fill)
-                    .height(Length::Fill)
-                    .into();
+                    .height(Length::Fill);
+                return self.maybe_with_delete_dialog(base.into());
             }
         }
 
-        container(canvas)
+        let base = container(canvas)
+            .width(Length::Fill)
+            .height(Length::Fill);
+        self.maybe_with_delete_dialog(base.into())
+    }
+
+    fn maybe_with_delete_dialog<'a>(&'a self, base: Element<'a, Message>) -> Element<'a, Message> {
+        let Some(node_id) = self.pending_delete else {
+            return base;
+        };
+
+        let node_name = self.document.get_node(&node_id)
+            .map(|n| n.content.text.clone())
+            .unwrap_or_default();
+        let child_count = self.document.get_node(&node_id)
+            .map(|n| n.children.len())
+            .unwrap_or(0);
+
+        let title = text(format!("Delete \"{}\"?", node_name))
+            .size(16);
+        let subtitle = text(format!(
+            "This node has {} child{}.",
+            child_count,
+            if child_count == 1 { "" } else { "ren" }
+        ))
+        .size(13);
+
+        let btn_style = |color: iced::Color| {
+            move |_theme: &iced::Theme, _status: button::Status| {
+                button::Style {
+                    background: Some(iced::Background::Color(color)),
+                    text_color: iced::Color::WHITE,
+                    border: iced::Border {
+                        radius: 6.0.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            }
+        };
+
+        let delete_all_btn = button(text("Delete All").size(13))
+            .on_press(Message::DeleteWithChildren(node_id))
+            .padding([6, 16])
+            .style(btn_style(iced::Color::from_rgb(0.8, 0.2, 0.2)));
+
+        let keep_children_btn = button(text("Keep Children").size(13))
+            .on_press(Message::DeleteKeepChildren(node_id))
+            .padding([6, 16])
+            .style(btn_style(iced::Color::from_rgb(0.3, 0.5, 0.8)));
+
+        let cancel_btn = button(text("Cancel").size(13))
+            .on_press(Message::CancelDelete)
+            .padding([6, 16])
+            .style(btn_style(iced::Color::from_rgb(0.4, 0.4, 0.4)));
+
+        let dialog = container(
+            column![
+                title,
+                subtitle,
+                row![delete_all_btn, keep_children_btn, cancel_btn].spacing(8)
+            ]
+            .spacing(12)
+            .align_x(iced::Alignment::Center),
+        )
+        .padding(20)
+        .style(|_theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgba(0.12, 0.12, 0.16, 0.97))),
+            border: iced::Border {
+                color: iced::Color::from_rgb(0.3, 0.3, 0.4),
+                width: 1.0,
+                radius: 12.0.into(),
+            },
+            ..Default::default()
+        });
+
+        let centered_dialog = container(dialog)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill);
+
+        // Semi-transparent backdrop
+        let backdrop = container(
+            button(container("").width(Length::Fill).height(Length::Fill))
+                .on_press(Message::CancelDelete)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_theme, _status| button::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.5))),
+                    ..Default::default()
+                }),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        stack![base, backdrop, centered_dialog]
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -1138,6 +1416,7 @@ struct MindMapProgram<'a> {
     drag_ghost: Option<DragGhostInfo>,
     #[allow(dead_code)]
     editing_node_id: Option<NodeId>,
+    hover_node_id: Option<NodeId>,
     rubber_band: Option<(geo::Point, geo::Point)>,
 }
 
@@ -1248,14 +1527,16 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                     )
                 }
                 mouse::Event::CursorMoved { .. } => {
-                    if state.panning || state.dragging || state.resizing || state.rubber_banding {
-                        (
-                            canvas::event::Status::Captured,
-                            Some(Message::CanvasEvent(CanvasEvent::CursorMoved(cursor_pos))),
-                        )
+                    let status = if state.panning || state.dragging || state.resizing || state.rubber_banding {
+                        canvas::event::Status::Captured
                     } else {
-                        (canvas::event::Status::Ignored, None)
-                    }
+                        canvas::event::Status::Ignored
+                    };
+                    // Always forward cursor moves (needed for hover tracking)
+                    (
+                        status,
+                        Some(Message::CanvasEvent(CanvasEvent::CursorMoved(cursor_pos))),
+                    )
                 }
                 mouse::Event::WheelScrolled { delta } => {
                     if state.cmd_held {
@@ -1315,6 +1596,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                 positions: self.positions,
                 edge_routes: self.edge_routes,
                 editing_node_id: self.editing_node_id,
+                hover_node_id: self.hover_node_id,
             };
             draw_canvas(frame, self.viewport, &data);
         });

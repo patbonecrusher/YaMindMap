@@ -205,14 +205,30 @@ static void install_delegate_methods(void) {
 }
 
 // ---------------------------------------------------------------------------
+// App icon (for About panel when not running from .app bundle)
+// ---------------------------------------------------------------------------
+
+static NSImage *sAppIcon = nil;
+
+void yamindmap_native_set_icon(const unsigned char* png_data, unsigned long png_len) {
+    NSData *data = [NSData dataWithBytes:png_data length:png_len];
+    sAppIcon = [[NSImage alloc] initWithData:data];
+    if (sAppIcon) {
+        [NSApp setApplicationIconImage:sAppIcon];
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Menu action handler
 // ---------------------------------------------------------------------------
 
 @interface YaMindMapMenuHandler : NSObject
+@property (nonatomic, copy) NSString *appVersion;
 - (void)menuNew:(id)sender;
 - (void)menuOpen:(id)sender;
 - (void)menuSave:(id)sender;
 - (void)menuSaveAs:(id)sender;
+- (void)showAbout:(id)sender;
 @end
 
 @implementation YaMindMapMenuHandler
@@ -233,6 +249,34 @@ static void install_delegate_methods(void) {
     push_menu_event(@"save_as");
 }
 
+- (void)menuUndo:(id)sender {
+    push_menu_event(@"undo");
+}
+
+- (void)menuRedo:(id)sender {
+    push_menu_event(@"redo");
+}
+
+- (void)showAbout:(id)sender {
+    NSString *version = self.appVersion ?: @"0.1.0";
+    NSMutableDictionary *options = [@{
+        @"ApplicationName": @"YaMindMap",
+        @"Version": version,
+        @"ApplicationVersion": version,
+        @"Copyright": @"© 2026 YaMindMap",
+        @"Credits": [[NSAttributedString alloc]
+            initWithString:@"A blazing-fast, GPU-accelerated mind mapping application built with Rust and iced."
+                attributes:@{
+                    NSFontAttributeName: [NSFont systemFontOfSize:11],
+                    NSForegroundColorAttributeName: [NSColor secondaryLabelColor]
+                }],
+    } mutableCopy];
+    if (sAppIcon) {
+        options[@"ApplicationIcon"] = sAppIcon;
+    }
+    [NSApp orderFrontStandardAboutPanelWithOptions:options];
+}
+
 @end
 
 static YaMindMapMenuHandler *sMenuHandler = nil;
@@ -241,8 +285,9 @@ static YaMindMapMenuHandler *sMenuHandler = nil;
 // Menu bar setup
 // ---------------------------------------------------------------------------
 
-static void setup_menu_bar(void) {
+static void setup_menu_bar(const char *version) {
     sMenuHandler = [[YaMindMapMenuHandler alloc] init];
+    sMenuHandler.appVersion = [NSString stringWithUTF8String:version];
 
     NSMenu *mainMenu = [[NSMenu alloc] init];
 
@@ -250,9 +295,11 @@ static void setup_menu_bar(void) {
     NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
     NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"YaMindMap"];
 
-    [appMenu addItemWithTitle:@"About YaMindMap"
-                       action:@selector(orderFrontStandardAboutPanel:)
-                keyEquivalent:@""];
+    NSMenuItem *aboutItem = [[NSMenuItem alloc] initWithTitle:@"About YaMindMap"
+                                                      action:@selector(showAbout:)
+                                               keyEquivalent:@""];
+    [aboutItem setTarget:sMenuHandler];
+    [appMenu addItem:aboutItem];
     [appMenu addItem:[NSMenuItem separatorItem]];
 
     NSMenuItem *servicesItem = [[NSMenuItem alloc] initWithTitle:@"Services" action:nil keyEquivalent:@""];
@@ -305,8 +352,12 @@ static void setup_menu_bar(void) {
     NSMenuItem *editMenuItem = [[NSMenuItem alloc] init];
     NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
 
-    [editMenu addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];
-    [editMenu addItemWithTitle:@"Redo" action:@selector(redo:) keyEquivalent:@"Z"];
+    NSMenuItem *undoItem = [[NSMenuItem alloc] initWithTitle:@"Undo" action:@selector(menuUndo:) keyEquivalent:@"z"];
+    [undoItem setTarget:sMenuHandler];
+    [editMenu addItem:undoItem];
+    NSMenuItem *redoItem = [[NSMenuItem alloc] initWithTitle:@"Redo" action:@selector(menuRedo:) keyEquivalent:@"Z"];
+    [redoItem setTarget:sMenuHandler];
+    [editMenu addItem:redoItem];
     [editMenu addItem:[NSMenuItem separatorItem]];
     [editMenu addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
     [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
@@ -357,9 +408,9 @@ void yamindmap_native_install_open_handler(void) {
     }
 }
 
-void yamindmap_native_init_menus(const char* version __attribute__((unused))) {
+void yamindmap_native_init_menus(const char* version) {
     ensure_queues();
-    setup_menu_bar();
+    setup_menu_bar(version);
     sAppReady = YES;
 }
 

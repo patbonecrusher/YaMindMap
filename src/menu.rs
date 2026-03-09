@@ -4,6 +4,7 @@ use std::ffi::CString;
 extern "C" {
     fn yamindmap_native_early_init();
     fn yamindmap_native_install_open_handler();
+    fn yamindmap_native_set_icon(png_data: *const u8, png_len: std::ffi::c_ulong);
     fn yamindmap_native_init_menus(version: *const std::ffi::c_char);
     fn yamindmap_native_pop_menu_event() -> *const std::ffi::c_char;
     fn yamindmap_native_install_magnify_handler();
@@ -29,6 +30,16 @@ pub fn install_open_handler() {
     unsafe {
         yamindmap_native_install_open_handler();
     }
+}
+
+/// Set the application icon from embedded PNG data.
+pub fn set_icon(png_data: &[u8]) {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        yamindmap_native_set_icon(png_data.as_ptr(), png_data.len() as std::ffi::c_ulong);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = png_data;
 }
 
 /// Initialize native menus. Call after iced event loop is running (deferred).
@@ -58,6 +69,8 @@ pub fn poll_menu_event() -> Option<crate::message::Message> {
             "open" => Some(crate::message::Message::MenuOpen),
             "save" => Some(crate::message::Message::MenuSave),
             "save_as" => Some(crate::message::Message::MenuSaveAs),
+            "undo" => Some(crate::message::Message::Undo),
+            "redo" => Some(crate::message::Message::Redo),
             _ => None,
         }
     }

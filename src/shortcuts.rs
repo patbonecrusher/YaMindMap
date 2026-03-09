@@ -12,13 +12,10 @@ pub fn handle_key(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<
                 Some(Message::AddSibling)
             }
         }
+        keyboard::Key::Named(keyboard::key::Named::Escape) => Some(Message::CancelDelete),
         keyboard::Key::Named(keyboard::key::Named::Delete)
         | keyboard::Key::Named(keyboard::key::Named::Backspace) => {
-            if modifiers.command() || modifiers.shift() {
-                Some(Message::DeleteSelected)
-            } else {
-                None
-            }
+            Some(Message::DeleteSelected)
         }
         keyboard::Key::Character(ref c) => {
             let c: &str = c;
@@ -31,9 +28,11 @@ pub fn handle_key(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<
                             Some(Message::Undo)
                         }
                     }
+                    "Z" => Some(Message::Redo),
                     "=" | "+" => Some(Message::ZoomIn),
                     "-" => Some(Message::ZoomOut),
                     "0" => Some(Message::ZoomToFit),
+                    "/" => Some(Message::ToggleFold),
                     _ => None,
                 }
             } else {

@@ -118,7 +118,11 @@ impl Document {
 
     /// Add a child node to a parent.
     pub fn add_child(&mut self, parent_id: NodeId, text: impl Into<String>) -> NodeId {
-        let child_id = NodeId::new();
+        self.add_child_with_id(parent_id, NodeId::new(), text)
+    }
+
+    /// Add a child node with a specific ID (used for redo to preserve identity).
+    pub fn add_child_with_id(&mut self, parent_id: NodeId, child_id: NodeId, text: impl Into<String>) -> NodeId {
         let mut child = MindMapNode::new(child_id, text);
         child.parent = Some(parent_id);
 
@@ -131,8 +135,12 @@ impl Document {
 
     /// Add a sibling after the given node.
     pub fn add_sibling(&mut self, sibling_of: NodeId, text: impl Into<String>) -> Option<NodeId> {
+        self.add_sibling_with_id(sibling_of, NodeId::new(), text)
+    }
+
+    /// Add a sibling with a specific ID (used for redo to preserve identity).
+    pub fn add_sibling_with_id(&mut self, sibling_of: NodeId, new_id: NodeId, text: impl Into<String>) -> Option<NodeId> {
         let parent_id = self.nodes.get(&sibling_of)?.parent?;
-        let new_id = NodeId::new();
         let mut new_node = MindMapNode::new(new_id, text);
         new_node.parent = Some(parent_id);
 

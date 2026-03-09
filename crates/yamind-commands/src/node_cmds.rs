@@ -26,7 +26,12 @@ impl AddChildCommand {
 
 impl Command for AddChildCommand {
     fn execute(&mut self, doc: &mut Document) {
-        let id = doc.add_child(self.parent_id, &self.text);
+        let id = if let Some(existing_id) = self.created_id {
+            // Redo: reuse the same ID so subsequent commands still reference it
+            doc.add_child_with_id(self.parent_id, existing_id, &self.text)
+        } else {
+            doc.add_child(self.parent_id, &self.text)
+        };
         self.created_id = Some(id);
     }
 
@@ -38,6 +43,10 @@ impl Command for AddChildCommand {
 
     fn description(&self) -> &str {
         "Add child node"
+    }
+
+    fn set_text(&mut self, text: String) {
+        self.text = text;
     }
 }
 
@@ -64,7 +73,11 @@ impl AddSiblingCommand {
 
 impl Command for AddSiblingCommand {
     fn execute(&mut self, doc: &mut Document) {
-        self.created_id = doc.add_sibling(self.sibling_of, &self.text);
+        self.created_id = if let Some(existing_id) = self.created_id {
+            doc.add_sibling_with_id(self.sibling_of, existing_id, &self.text)
+        } else {
+            doc.add_sibling(self.sibling_of, &self.text)
+        };
     }
 
     fn undo(&mut self, doc: &mut Document) {
@@ -75,6 +88,10 @@ impl Command for AddSiblingCommand {
 
     fn description(&self) -> &str {
         "Add sibling node"
+    }
+
+    fn set_text(&mut self, text: String) {
+        self.text = text;
     }
 }
 
@@ -130,6 +147,97 @@ impl Command for DeleteNodeCommand {
 
     fn description(&self) -> &str {
         "Delete node"
+    }
+}
+
+/// Delete a node but reparent its children to the deleted node's parent.
+#[derive(Debug)]
+pub struct DeleteAndReparentCommand {
+    node_id: NodeId,
+    removed_node: Option<MindMapNode>,
+    parent_id: Option<NodeId>,
+    child_index: Option<usize>,
+    children: Vec<NodeId>,
+}
+
+impl DeleteAndReparentCommand {
+    pub fn new(node_id: NodeId) -> Self {
+        Self {
+            node_id,
+            removed_node: None,
+            parent_id: None,
+            child_index: None,
+            children: Vec::new(),
+        }
+    }
+}
+
+impl Command for DeleteAndReparentCommand {
+    fn execute(&mut self, doc: &mut Document) {
+        if let Some(node) = doc.get_node(&self.node_id) {
+            self.parent_id = node.parent;
+            self.children = node.children.clone();
+            if let Some(parent_id) = node.parent {
+                if let Some(parent) = doc.get_node(&parent_id) {
+                    self.child_index = parent
+                        .children
+                        .iter()
+                        .position(|c| *c == self.node_id);
+                }
+            }
+        }
+
+        // Reparent children to the deleted node's parent at the same position
+        if let Some(parent_id) = self.parent_id {
+            let idx = self.child_index.unwrap_or(0);
+            // Remove self from parent's children
+            if let Some(parent) = doc.get_node_mut(&parent_id) {
+                parent.children.retain(|c| *c != self.node_id);
+            }
+            // Insert children where self was
+            for (i, child_id) in self.children.iter().enumerate() {
+                if let Some(child) = doc.get_node_mut(child_id) {
+                    child.parent = Some(parent_id);
+                }
+                if let Some(parent) = doc.get_node_mut(&parent_id) {
+                    let insert_at = (idx + i).min(parent.children.len());
+                    parent.children.insert(insert_at, *child_id);
+                }
+            }
+        }
+
+        // Remove just the node itself (not its subtree)
+        self.removed_node = doc.nodes.swap_remove(&self.node_id);
+    }
+
+    fn undo(&mut self, doc: &mut Document) {
+        // Re-insert the deleted node
+        if let Some(node) = self.removed_node.take() {
+            doc.nodes.insert(node.id, node);
+        }
+
+        if let Some(parent_id) = self.parent_id {
+            // Remove children from parent's children list
+            if let Some(parent) = doc.get_node_mut(&parent_id) {
+                parent.children.retain(|c| !self.children.contains(c));
+            }
+            // Re-insert self at original position
+            if let Some(parent) = doc.get_node_mut(&parent_id) {
+                let idx = self.child_index.unwrap_or(parent.children.len());
+                parent.children.insert(idx, self.node_id);
+            }
+        }
+
+        // Reparent children back to deleted node
+        for child_id in &self.children {
+            if let Some(child) = doc.get_node_mut(child_id) {
+                child.parent = Some(self.node_id);
+            }
+        }
+    }
+
+    fn description(&self) -> &str {
+        "Delete node (keep children)"
     }
 }
 
