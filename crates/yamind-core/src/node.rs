@@ -4,10 +4,25 @@ use crate::style::{NodeStyle, RichSpan};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AttachmentKind {
+    Url(String),
+    Document(String),
+    Photo(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Attachment {
+    pub kind: AttachmentKind,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodeContent {
     pub text: String,
     pub rich_spans: Vec<RichSpan>,
     pub notes: String,
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
 }
 
 impl NodeContent {
@@ -16,6 +31,7 @@ impl NodeContent {
             text: text.into(),
             rich_spans: Vec::new(),
             notes: String::new(),
+            attachments: Vec::new(),
         }
     }
 }

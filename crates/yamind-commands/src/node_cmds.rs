@@ -1,6 +1,6 @@
 use crate::command::Command;
 use yamind_core::id::NodeId;
-use yamind_core::node::MindMapNode;
+use yamind_core::node::{Attachment, MindMapNode};
 use yamind_core::Document;
 
 #[derive(Debug)]
@@ -317,5 +317,85 @@ impl Command for EditTextCommand {
 
     fn description(&self) -> &str {
         "Edit text"
+    }
+}
+
+#[derive(Debug)]
+pub struct AddAttachmentCommand {
+    node_id: NodeId,
+    attachment: Attachment,
+    index: Option<usize>,
+}
+
+impl AddAttachmentCommand {
+    pub fn new(node_id: NodeId, attachment: Attachment) -> Self {
+        Self {
+            node_id,
+            attachment,
+            index: None,
+        }
+    }
+}
+
+impl Command for AddAttachmentCommand {
+    fn execute(&mut self, doc: &mut Document) {
+        if let Some(node) = doc.get_node_mut(&self.node_id) {
+            node.content.attachments.push(self.attachment.clone());
+            self.index = Some(node.content.attachments.len() - 1);
+        }
+    }
+
+    fn undo(&mut self, doc: &mut Document) {
+        if let Some(idx) = self.index {
+            if let Some(node) = doc.get_node_mut(&self.node_id) {
+                if idx < node.content.attachments.len() {
+                    node.content.attachments.remove(idx);
+                }
+            }
+        }
+    }
+
+    fn description(&self) -> &str {
+        "Add attachment"
+    }
+}
+
+#[derive(Debug)]
+pub struct RemoveAttachmentCommand {
+    node_id: NodeId,
+    index: usize,
+    removed: Option<Attachment>,
+}
+
+impl RemoveAttachmentCommand {
+    pub fn new(node_id: NodeId, index: usize) -> Self {
+        Self {
+            node_id,
+            index,
+            removed: None,
+        }
+    }
+}
+
+impl Command for RemoveAttachmentCommand {
+    fn execute(&mut self, doc: &mut Document) {
+        if let Some(node) = doc.get_node_mut(&self.node_id) {
+            if self.index < node.content.attachments.len() {
+                self.removed = Some(node.content.attachments.remove(self.index));
+            }
+        }
+    }
+
+    fn undo(&mut self, doc: &mut Document) {
+        if let Some(attachment) = self.removed.take() {
+            if let Some(node) = doc.get_node_mut(&self.node_id) {
+                let idx = self.index.min(node.content.attachments.len());
+                node.content.attachments.insert(idx, attachment);
+            }
+        }
+    }
+
+    fn description(&self) -> &str {
+        "Remove attachment"
     }
 }

@@ -14,15 +14,16 @@ use yamind_canvas::program::{draw_canvas, CanvasData};
 use yamind_canvas::viewport::Viewport;
 use yamind_canvas::CanvasMessage;
 use yamind_commands::{
-    AddChildCommand, AddSiblingCommand, Command, CommandHistory, DeleteAndReparentCommand,
-    DeleteNodeCommand, EditTextCommand, MoveNodeCommand,
+    AddAttachmentCommand, AddChildCommand, AddSiblingCommand, Command, CommandHistory,
+    DeleteAndReparentCommand, DeleteNodeCommand, EditTextCommand, MoveNodeCommand,
+    RemoveAttachmentCommand,
 };
 use yamind_core::geometry::{self as geo, Rect};
 use yamind_core::id::NodeId;
 use yamind_core::{Document, Selection};
 use yamind_layout::perform_layout;
 
-use crate::message::{CanvasEvent, Message};
+use crate::message::{CanvasEvent, ContextAction, Message};
 use crate::shortcuts;
 
 /// Where a dragged node would be dropped.
@@ -78,6 +79,28 @@ pub struct App {
     window_id: Option<window::Id>,
     /// View state waiting to be applied once we have a window_id.
     pending_window_restore: Option<yamind_file::ViewState>,
+
+    // URL attachment input overlay: (node_id, url_text, auto_fill_title, fetched_title)
+    pending_url_input: Option<UrlInputState>,
+
+    // Context menu state
+    context_menu: Option<ContextMenuState>,
+}
+
+#[derive(Debug, Clone)]
+struct UrlInputState {
+    node_id: NodeId,
+    url: String,
+    auto_fill_title: bool,
+    fetched_title: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ContextMenuState {
+    /// Screen-space position where the menu should appear.
+    screen_pos: (f32, f32),
+    /// The node that was right-clicked.
+    node_id: NodeId,
 }
 
 impl App {
@@ -143,6 +166,8 @@ impl App {
             window_position,
             window_id: None,
             pending_window_restore: None,
+            pending_url_input: None,
+            context_menu: None,
         };
 
         app.compute_layout();
@@ -165,6 +190,25 @@ impl App {
         doc.add_child(c3, "Sub-topic 3.1");
         doc.add_child(c3, "Sub-topic 3.2");
         doc.add_child(c3, "Sub-topic 3.3");
+
+        // Add demo attachments
+        if let Some(node) = doc.get_node_mut(&c1) {
+            node.content.attachments.push(yamind_core::node::Attachment {
+                kind: yamind_core::node::AttachmentKind::Url("https://example.com".to_string()),
+                label: Some("Example".to_string()),
+            });
+        }
+        if let Some(node) = doc.get_node_mut(&c2) {
+            node.content.attachments.push(yamind_core::node::Attachment {
+                kind: yamind_core::node::AttachmentKind::Document("/tmp/test.pdf".to_string()),
+                label: Some("Test Doc".to_string()),
+            });
+            node.content.attachments.push(yamind_core::node::Attachment {
+                kind: yamind_core::node::AttachmentKind::Photo("/tmp/photo.png".to_string()),
+                label: Some("Photo".to_string()),
+            });
+        }
+
         doc
     }
 
@@ -182,6 +226,13 @@ impl App {
             let min_width = resolved.min_width.unwrap_or(60.0);
             let max_width = resolved.max_width.unwrap_or(200.0);
 
+            // Reserve side column width for attachments (and future flags)
+            let side_col = if node.content.attachments.is_empty() {
+                0.0
+            } else {
+                yamind_canvas::node_renderer::SIDE_COLUMN_WIDTH
+            };
+
             let width = if let Some(mw) = node.manual_width {
                 mw.max(min_width)
             } else {
@@ -189,11 +240,11 @@ impl App {
                 let unwrapped = yamind_canvas::text_measure::measure_text(
                     &node.content.text, font_size, None,
                 );
-                (unwrapped.width + padding_h * 2.0).clamp(min_width, max_width)
+                (unwrapped.width + padding_h * 2.0 + side_col).clamp(min_width, max_width)
             };
 
             // Measure text wrapped within the node's usable width to get height
-            let usable_width = width - padding_h * 2.0;
+            let usable_width = width - padding_h * 2.0 - side_col;
             let wrapped = yamind_canvas::text_measure::measure_text(
                 &node.content.text, font_size, Some(usable_width),
             );
@@ -273,6 +324,41 @@ impl App {
                 Message::DeleteWithChildren(_)
                 | Message::DeleteKeepChildren(_)
                 | Message::CancelDelete => {} // allow these through
+                _ => return Task::none(),
+            }
+        }
+        // When the URL input overlay is open, only allow URL-related messages
+        if self.pending_url_input.is_some() {
+            match &message {
+                Message::UrlInputChanged(_)
+                | Message::ToggleAutoFillTitle
+                | Message::FetchTitle
+                | Message::TitleFetched(_)
+                | Message::SubmitUrlAttachment
+                | Message::CancelUrlAttachment => {}
+                // Escape key produces CancelDelete — treat as cancel URL input
+                Message::CancelDelete => {
+                    self.pending_url_input = None;
+                    return Task::none();
+                }
+                _ => return Task::none(),
+            }
+        }
+        // When context menu is open, only allow context-menu-related messages
+        if self.context_menu.is_some() {
+            match &message {
+                Message::DismissContextMenu
+                | Message::ContextMenuAction(_) => {}
+                // Escape dismisses context menu
+                Message::CancelDelete => {
+                    self.context_menu = None;
+                    return Task::none();
+                }
+                // Any canvas event dismisses context menu
+                Message::CanvasEvent(_) => {
+                    self.context_menu = None;
+                    return Task::none();
+                }
                 _ => return Task::none(),
             }
         }
@@ -513,6 +599,179 @@ impl App {
                     self.compute_layout();
                 }
             }
+            Message::AddUrlAttachment => {
+                if let Some(node_id) = self.selection.single() {
+                    self.pending_url_input = Some(UrlInputState {
+                        node_id,
+                        url: String::new(),
+                        auto_fill_title: true,
+                        fetched_title: None,
+                    });
+                }
+            }
+            Message::AddDocumentAttachment => {
+                if let Some(node_id) = self.selection.single() {
+                    let dialog = rfd::FileDialog::new()
+                        .set_title("Attach Document");
+                    if let Some(path) = dialog.pick_file() {
+                        let path_str = self.make_relative_path(&path);
+                        let attachment = yamind_core::node::Attachment {
+                            kind: yamind_core::node::AttachmentKind::Document(path_str),
+                            label: path.file_name().map(|n| n.to_string_lossy().into_owned()),
+                        };
+                        self.history.execute(
+                            Box::new(AddAttachmentCommand::new(node_id, attachment)),
+                            &mut self.document,
+                        );
+                        self.compute_layout();
+                    }
+                }
+            }
+            Message::AddPhotoAttachment => {
+                if let Some(node_id) = self.selection.single() {
+                    let dialog = rfd::FileDialog::new()
+                        .set_title("Attach Photo")
+                        .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
+                    if let Some(path) = dialog.pick_file() {
+                        let path_str = self.make_relative_path(&path);
+                        let attachment = yamind_core::node::Attachment {
+                            kind: yamind_core::node::AttachmentKind::Photo(path_str),
+                            label: path.file_name().map(|n| n.to_string_lossy().into_owned()),
+                        };
+                        self.history.execute(
+                            Box::new(AddAttachmentCommand::new(node_id, attachment)),
+                            &mut self.document,
+                        );
+                        self.compute_layout();
+                    }
+                }
+            }
+            Message::UrlInputChanged(new_text) => {
+                if let Some(ref mut state) = self.pending_url_input {
+                    state.url = new_text;
+                    state.fetched_title = None;
+                }
+            }
+            Message::ToggleAutoFillTitle => {
+                if let Some(ref mut state) = self.pending_url_input {
+                    state.auto_fill_title = !state.auto_fill_title;
+                }
+            }
+            Message::FetchTitle => {
+                if let Some(ref state) = self.pending_url_input {
+                    let url = state.url.clone();
+                    if !url.is_empty() {
+                        return Task::perform(
+                            async move { fetch_page_title(&url).await },
+                            Message::TitleFetched,
+                        );
+                    }
+                }
+            }
+            Message::TitleFetched(title) => {
+                if let Some(ref mut state) = self.pending_url_input {
+                    if !title.is_empty() {
+                        state.fetched_title = Some(title);
+                    }
+                }
+            }
+            Message::SubmitUrlAttachment => {
+                if let Some(state) = self.pending_url_input.take() {
+                    if !state.url.is_empty() {
+                        // If auto-fill is on and we have a title, rename the node
+                        if state.auto_fill_title {
+                            if let Some(ref title) = state.fetched_title {
+                                if !title.is_empty() {
+                                    self.history.execute(
+                                        Box::new(EditTextCommand::new(state.node_id, title.clone())),
+                                        &mut self.document,
+                                    );
+                                }
+                            }
+                        }
+                        let attachment = yamind_core::node::Attachment {
+                            kind: yamind_core::node::AttachmentKind::Url(state.url),
+                            label: state.fetched_title,
+                        };
+                        self.history.execute(
+                            Box::new(AddAttachmentCommand::new(state.node_id, attachment)),
+                            &mut self.document,
+                        );
+                        self.compute_layout();
+                    }
+                }
+            }
+            Message::CancelUrlAttachment => {
+                self.pending_url_input = None;
+            }
+            Message::AttachmentPicked(node_id, attachment) => {
+                self.history.execute(
+                    Box::new(AddAttachmentCommand::new(node_id, attachment)),
+                    &mut self.document,
+                );
+                self.compute_layout();
+            }
+            Message::RemoveAttachment(node_id, idx) => {
+                self.history.execute(
+                    Box::new(RemoveAttachmentCommand::new(node_id, idx)),
+                    &mut self.document,
+                );
+                self.compute_layout();
+            }
+            Message::OpenAttachment(node_id, idx) => {
+                self.open_attachment(&node_id, idx);
+            }
+            Message::ShowContextMenu(pos) => {
+                let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
+                if let Some(node_id) = self.spatial_index.hit_test(world) {
+                    self.context_menu = Some(ContextMenuState {
+                        screen_pos: (pos.x, pos.y),
+                        node_id,
+                    });
+                }
+            }
+            Message::DismissContextMenu => {
+                self.context_menu = None;
+            }
+            Message::ContextMenuAction(action) => {
+                let node_id = self.context_menu.as_ref().map(|cm| cm.node_id);
+                self.context_menu = None;
+                if let Some(node_id) = node_id {
+                    match action {
+                        ContextAction::AddChild => {
+                            self.selection.select(node_id);
+                            return self.update(Message::AddChild);
+                        }
+                        ContextAction::AddSibling => {
+                            self.selection.select(node_id);
+                            return self.update(Message::AddSibling);
+                        }
+                        ContextAction::AddUrl => {
+                            self.selection.select(node_id);
+                            return self.update(Message::AddUrlAttachment);
+                        }
+                        ContextAction::AddDocument => {
+                            self.selection.select(node_id);
+                            return self.update(Message::AddDocumentAttachment);
+                        }
+                        ContextAction::AddPhoto => {
+                            self.selection.select(node_id);
+                            return self.update(Message::AddPhotoAttachment);
+                        }
+                        ContextAction::EditNode => {
+                            return self.update(Message::StartEditing(node_id));
+                        }
+                        ContextAction::ToggleFold => {
+                            self.selection.select(node_id);
+                            return self.update(Message::ToggleFold);
+                        }
+                        ContextAction::Delete => {
+                            self.selection.select(node_id);
+                            return self.update(Message::DeleteSelected);
+                        }
+                    }
+                }
+            }
             Message::WindowOpened(id, pos) => {
                 eprintln!("[DEBUG] WindowOpened: id={:?} pos=({}, {})", id, pos.x, pos.y);
                 self.window_id = Some(id);
@@ -538,7 +797,7 @@ impl App {
 
     fn handle_canvas_event(&mut self, event: CanvasEvent) -> Task<Message> {
         match event {
-            CanvasEvent::LeftPress(pos, shift_held) => {
+            CanvasEvent::LeftPress(pos, shift_held, alt_held) => {
                 // If editing, commit on click away
                 if self.editing_node.is_some() {
                     let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
@@ -555,6 +814,16 @@ impl App {
                 }
 
                 let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
+
+                // Check if clicking an attachment icon
+                if let Some((node_id, idx)) = self.hit_test_attachment(world) {
+                    if alt_held {
+                        // Alt+click → remove attachment
+                        return self.update(Message::RemoveAttachment(node_id, idx));
+                    } else {
+                        return self.update(Message::OpenAttachment(node_id, idx));
+                    }
+                }
 
                 // Check if clicking a fold/unfold badge
                 if let Some(node_id) = self.hit_test_fold_badge(world) {
@@ -788,8 +1057,19 @@ impl App {
                     return iced::widget::focus_next();
                 }
             }
-            CanvasEvent::RightPress(_pos) => {
-                // TODO: Context menu
+            CanvasEvent::RightPress(pos) => {
+                let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
+                if let Some(node_id) = self.spatial_index.hit_test(world) {
+                    self.selection.select(node_id);
+                    self.context_menu = Some(ContextMenuState {
+                        screen_pos: (pos.x, pos.y),
+                        node_id,
+                    });
+                    self.canvas_cache.clear();
+                }
+            }
+            CanvasEvent::RightRelease(_pos) => {
+                // Context menu shown on press; nothing to do on release.
             }
         }
         Task::none()
@@ -889,6 +1169,97 @@ impl App {
             }
         }
         None
+    }
+
+    /// Compute clickable rects for each attachment icon of a node (inside the side column).
+    fn attachment_icon_rects(&self, node_id: &NodeId) -> Vec<(usize, Rect)> {
+        let Some(bounds) = self.positions.get(node_id) else {
+            return Vec::new();
+        };
+        let Some(node) = self.document.get_node(node_id) else {
+            return Vec::new();
+        };
+        if node.content.attachments.is_empty() {
+            return Vec::new();
+        }
+
+        let icon_size = 14.0_f32;
+        let icon_spacing = 4.0_f32;
+        let count = node.content.attachments.len();
+        let is_left = self.is_left_of_root(node_id);
+        let total_height = count as f32 * icon_size + (count.saturating_sub(1)) as f32 * icon_spacing;
+        let start_y = bounds.y + (bounds.height - total_height) / 2.0;
+        // Match the padding_h used in rendering so icon aligns with text edge spacing
+        let depth = self.document.depth_of(node_id);
+        let default_style = self.document.default_styles.for_depth(depth);
+        let resolved = node.style.merged_with(default_style);
+        let padding_h = resolved.padding_h.unwrap_or(12.0);
+        let icon_x = if is_left {
+            bounds.x + padding_h - icon_size / 2.0
+        } else {
+            bounds.x + bounds.width - padding_h - icon_size / 2.0
+        };
+
+        (0..count)
+            .map(|i| {
+                let y = start_y + i as f32 * (icon_size + icon_spacing);
+                (i, Rect::new(icon_x, y, icon_size, icon_size))
+            })
+            .collect()
+    }
+
+    /// Hit-test attachment icons. Returns (node_id, attachment_index) if an icon was clicked.
+    fn hit_test_attachment(&self, world: geo::Point) -> Option<(NodeId, usize)> {
+        for (id, _) in &self.positions {
+            for (idx, rect) in self.attachment_icon_rects(id) {
+                if rect.contains(world) {
+                    return Some((*id, idx));
+                }
+            }
+        }
+        None
+    }
+
+    /// Open an attachment using the system default handler.
+    fn open_attachment(&self, node_id: &NodeId, idx: usize) {
+        let Some(node) = self.document.get_node(node_id) else { return };
+        let Some(attachment) = node.content.attachments.get(idx) else { return };
+        use yamind_core::node::AttachmentKind;
+        match &attachment.kind {
+            AttachmentKind::Url(url) => {
+                let _ = open::that(url);
+            }
+            AttachmentKind::Document(path) | AttachmentKind::Photo(path) => {
+                let resolved = self.resolve_attachment_path(path);
+                let _ = open::that(&resolved);
+            }
+        }
+    }
+
+    /// Resolve a potentially relative attachment path using the file's directory as base.
+    fn resolve_attachment_path(&self, path: &str) -> String {
+        let p = std::path::Path::new(path);
+        if p.is_absolute() {
+            return path.to_string();
+        }
+        if let Some(ref file_path) = self.file_path {
+            if let Some(dir) = file_path.parent() {
+                return dir.join(p).to_string_lossy().into_owned();
+            }
+        }
+        path.to_string()
+    }
+
+    /// Make a path relative to the file's directory if possible.
+    fn make_relative_path(&self, path: &std::path::Path) -> String {
+        if let Some(ref file_path) = self.file_path {
+            if let Some(dir) = file_path.parent() {
+                if let Ok(rel) = path.strip_prefix(dir) {
+                    return rel.to_string_lossy().into_owned();
+                }
+            }
+        }
+        path.to_string_lossy().into_owned()
     }
 
     /// Determine where a dragged node should be dropped based on cursor position.
@@ -1250,14 +1621,18 @@ impl App {
                 let base = stack![canvas, positioned_editor]
                     .width(Length::Fill)
                     .height(Length::Fill);
-                return self.maybe_with_delete_dialog(base.into());
+                let with_delete = self.maybe_with_delete_dialog(base.into());
+                let with_url = self.maybe_with_url_input(with_delete);
+                return self.maybe_with_context_menu(with_url);
             }
         }
 
         let base = container(canvas)
             .width(Length::Fill)
             .height(Length::Fill);
-        self.maybe_with_delete_dialog(base.into())
+        let with_delete = self.maybe_with_delete_dialog(base.into());
+        let with_url = self.maybe_with_url_input(with_delete);
+        self.maybe_with_context_menu(with_url)
     }
 
     fn maybe_with_delete_dialog<'a>(&'a self, base: Element<'a, Message>) -> Element<'a, Message> {
@@ -1351,6 +1726,289 @@ impl App {
         .height(Length::Fill);
 
         stack![base, backdrop, centered_dialog]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+
+    fn maybe_with_url_input<'a>(&'a self, base: Element<'a, Message>) -> Element<'a, Message> {
+        let Some(ref url_state) = self.pending_url_input else {
+            return base;
+        };
+
+        let url_text = url_state.url.clone();
+        let auto_fill = url_state.auto_fill_title;
+
+        let title = text("Insert Web Link").size(18);
+
+        let input = iced::widget::text_input("https://example.com", &url_text)
+            .on_input(Message::UrlInputChanged)
+            .on_submit(Message::FetchTitle)
+            .size(14)
+            .padding(10)
+            .width(Length::Fill);
+
+        let btn_style = |color: iced::Color| {
+            move |_theme: &iced::Theme, status: button::Status| {
+                let bg = match status {
+                    button::Status::Hovered => {
+                        let mut c = color;
+                        c.a = 0.9;
+                        c
+                    }
+                    _ => color,
+                };
+                button::Style {
+                    background: Some(iced::Background::Color(bg)),
+                    text_color: iced::Color::WHITE,
+                    border: iced::Border {
+                        radius: 6.0.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            }
+        };
+
+        // Title preview area
+        let preview: Element<'a, Message> = if let Some(ref fetched) = url_state.fetched_title {
+            container(
+                text(fetched.as_str()).size(14),
+            )
+            .padding(14)
+            .width(Length::Fill)
+            .style(|_theme| container::Style {
+                background: Some(iced::Background::Color(iced::Color::from_rgba(0.18, 0.18, 0.22, 1.0))),
+                border: iced::Border {
+                    radius: 6.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+        } else if !url_text.is_empty() {
+            // Show a "Fetch Title" button
+            container(
+                button(text("Fetch Page Title").size(13))
+                    .on_press(Message::FetchTitle)
+                    .padding([8, 16])
+                    .style(btn_style(iced::Color::from_rgb(0.3, 0.4, 0.55))),
+            )
+            .padding(8)
+            .width(Length::Fill)
+            .center_x(Length::Fill)
+            .style(|_theme| container::Style {
+                background: Some(iced::Background::Color(iced::Color::from_rgba(0.18, 0.18, 0.22, 1.0))),
+                border: iced::Border {
+                    radius: 6.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+        } else {
+            container("").height(0).into()
+        };
+
+        // Auto fill toggle
+        let auto_fill_label = if auto_fill { "Auto fill:  Webpage Title" } else { "Auto fill:  None" };
+        let auto_fill_toggle = button(text(auto_fill_label).size(12))
+            .on_press(Message::ToggleAutoFillTitle)
+            .padding([4, 8])
+            .style(|_theme, _status| button::Style {
+                background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
+                text_color: iced::Color::from_rgb(0.6, 0.6, 0.7),
+                border: iced::Border::default(),
+                ..Default::default()
+            });
+
+        // Bottom button row: Remove on left, Cancel + Insert on right
+        let remove_btn = button(text("Remove").size(13))
+            .on_press(Message::CancelUrlAttachment)
+            .padding([8, 20])
+            .style(btn_style(iced::Color::from_rgb(0.35, 0.35, 0.4)));
+
+        let cancel_btn = button(text("Cancel").size(13))
+            .on_press(Message::CancelUrlAttachment)
+            .padding([8, 20])
+            .style(btn_style(iced::Color::from_rgb(0.35, 0.35, 0.4)));
+
+        let insert_btn = button(text("Insert").size(13))
+            .on_press(Message::SubmitUrlAttachment)
+            .padding([8, 20])
+            .style(btn_style(iced::Color::from_rgb(0.3, 0.5, 0.85)));
+
+        let dialog = container(
+            column![
+                title,
+                input,
+                preview,
+                auto_fill_toggle,
+                row![
+                    remove_btn,
+                    iced::widget::horizontal_space(),
+                    cancel_btn,
+                    insert_btn,
+                ].spacing(8)
+            ]
+            .spacing(12)
+            .width(420.0),
+        )
+        .padding(24)
+        .style(|_theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgba(0.12, 0.12, 0.16, 0.97))),
+            border: iced::Border {
+                color: iced::Color::from_rgb(0.3, 0.3, 0.4),
+                width: 1.0,
+                radius: 12.0.into(),
+            },
+            ..Default::default()
+        });
+
+        let centered_dialog = container(dialog)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill);
+
+        let backdrop = container(
+            button(container("").width(Length::Fill).height(Length::Fill))
+                .on_press(Message::CancelUrlAttachment)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_theme, _status| button::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.5))),
+                    ..Default::default()
+                }),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        stack![base, backdrop, centered_dialog]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+
+    fn maybe_with_context_menu<'a>(&'a self, base: Element<'a, Message>) -> Element<'a, Message> {
+        let Some(ref cm) = self.context_menu else {
+            return base;
+        };
+
+        let node = self.document.get_node(&cm.node_id);
+        let is_root = node.map_or(false, |n| n.is_root());
+        let has_children = node.map_or(false, |n| !n.children.is_empty());
+        let is_collapsed = node.map_or(false, |n| n.collapsed);
+
+        let menu_item = |label: &'a str, action: ContextAction| -> Element<'a, Message> {
+            button(text(label).size(13))
+                .on_press(Message::ContextMenuAction(action))
+                .width(Length::Fill)
+                .padding([6, 14])
+                .style(|_theme, status| {
+                    let bg = match status {
+                        button::Status::Hovered => iced::Color::from_rgba(0.3, 0.5, 0.9, 0.3),
+                        _ => iced::Color::TRANSPARENT,
+                    };
+                    button::Style {
+                        background: Some(iced::Background::Color(bg)),
+                        text_color: iced::Color::WHITE,
+                        border: iced::Border::default(),
+                        ..Default::default()
+                    }
+                })
+                .into()
+        };
+
+        let sep = || -> Element<'a, Message> {
+            container("")
+                .width(Length::Fill)
+                .height(1)
+                .style(|_theme| container::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.12))),
+                    ..Default::default()
+                })
+                .into()
+        };
+
+        let mut items: Vec<Element<'_, Message>> = Vec::new();
+        items.push(menu_item("Add Child", ContextAction::AddChild));
+        if !is_root {
+            items.push(menu_item("Add Sibling", ContextAction::AddSibling));
+        }
+        items.push(sep());
+        items.push(menu_item("Insert Web Link…", ContextAction::AddUrl));
+        items.push(menu_item("Attach Document…", ContextAction::AddDocument));
+        items.push(menu_item("Attach Photo…", ContextAction::AddPhoto));
+        items.push(sep());
+        items.push(menu_item("Edit", ContextAction::EditNode));
+        if has_children {
+            let fold_label = if is_collapsed { "Expand" } else { "Collapse" };
+            items.push(menu_item(fold_label, ContextAction::ToggleFold));
+        }
+        if !is_root {
+            items.push(sep());
+            items.push(
+                button(text("Delete").size(13))
+                    .on_press(Message::ContextMenuAction(ContextAction::Delete))
+                    .width(Length::Fill)
+                    .padding([6, 14])
+                    .style(|_theme, status| {
+                        let bg = match status {
+                            button::Status::Hovered => iced::Color::from_rgba(0.8, 0.2, 0.2, 0.4),
+                            _ => iced::Color::TRANSPARENT,
+                        };
+                        button::Style {
+                            background: Some(iced::Background::Color(bg)),
+                            text_color: iced::Color::from_rgb(1.0, 0.4, 0.4),
+                            border: iced::Border::default(),
+                            ..Default::default()
+                        }
+                    })
+                    .into(),
+            );
+        }
+
+        let menu_col = iced::widget::Column::with_children(items)
+            .spacing(1)
+            .width(180.0);
+
+        let menu = container(menu_col)
+            .padding([6, 0])
+            .style(|_theme| container::Style {
+                background: Some(iced::Background::Color(iced::Color::from_rgba(0.14, 0.14, 0.18, 0.97))),
+                border: iced::Border {
+                    color: iced::Color::from_rgb(0.3, 0.3, 0.4),
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            });
+
+        // Position the menu at the click location, clamped to screen
+        let menu_x = cm.screen_pos.0.min(self.screen_size.0 - 200.0).max(0.0);
+        let menu_y = cm.screen_pos.1.min(self.screen_size.1 - 300.0).max(0.0);
+
+        let positioned_menu = container(menu)
+            .padding(iced::padding::top(menu_y).left(menu_x))
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        // Transparent backdrop to dismiss on click outside
+        let backdrop = container(
+            button(container("").width(Length::Fill).height(Length::Fill))
+                .on_press(Message::DismissContextMenu)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_theme, _status| button::Style {
+                    background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
+                    ..Default::default()
+                }),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        stack![base, backdrop, positioned_menu]
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -1485,7 +2143,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                     }
                     (
                         canvas::event::Status::Captured,
-                        Some(Message::CanvasEvent(CanvasEvent::LeftPress(cursor_pos, state.shift_held))),
+                        Some(Message::CanvasEvent(CanvasEvent::LeftPress(cursor_pos, state.shift_held, state.alt_held))),
                     )
                 }
                 mouse::Event::ButtonReleased(mouse::Button::Left) => {
@@ -1512,19 +2170,41 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                     )
                 }
                 mouse::Event::ButtonPressed(mouse::Button::Right) => {
-                    // Also allow right-click drag for panning
-                    state.panning = true;
-                    (
-                        canvas::event::Status::Captured,
-                        Some(Message::CanvasEvent(CanvasEvent::MiddlePress(cursor_pos))),
-                    )
+                    // Check if right-clicking on a node → context menu
+                    let world = self.viewport.screen_to_world(
+                        geo::Point::new(cursor_pos.x, cursor_pos.y),
+                    );
+                    let hit_node = self.positions.iter().any(|(_, rect)| rect.contains(world));
+                    if hit_node {
+                        state.right_click_on_node = true;
+                        (
+                            canvas::event::Status::Captured,
+                            Some(Message::CanvasEvent(CanvasEvent::RightPress(cursor_pos))),
+                        )
+                    } else {
+                        // Right-click on empty space → pan
+                        state.panning = true;
+                        (
+                            canvas::event::Status::Captured,
+                            Some(Message::CanvasEvent(CanvasEvent::MiddlePress(cursor_pos))),
+                        )
+                    }
                 }
                 mouse::Event::ButtonReleased(mouse::Button::Right) => {
-                    state.panning = false;
-                    (
-                        canvas::event::Status::Captured,
-                        Some(Message::CanvasEvent(CanvasEvent::MiddleRelease)),
-                    )
+                    let was_node = state.right_click_on_node;
+                    state.right_click_on_node = false;
+                    if was_node {
+                        (
+                            canvas::event::Status::Captured,
+                            Some(Message::CanvasEvent(CanvasEvent::RightRelease(cursor_pos))),
+                        )
+                    } else {
+                        state.panning = false;
+                        (
+                            canvas::event::Status::Captured,
+                            Some(Message::CanvasEvent(CanvasEvent::MiddleRelease)),
+                        )
+                    }
                 }
                 mouse::Event::CursorMoved { .. } => {
                     let status = if state.panning || state.dragging || state.resizing || state.rubber_banding {
@@ -1571,6 +2251,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                     keyboard::Event::ModifiersChanged(mods) => {
                         state.cmd_held = mods.command();
                         state.shift_held = mods.shift();
+                        state.alt_held = mods.alt();
                     }
                     _ => {}
                 }
@@ -1720,6 +2401,8 @@ pub struct CanvasInteractionState {
     rubber_banding: bool,
     cmd_held: bool,
     shift_held: bool,
+    alt_held: bool,
+    right_click_on_node: bool,
     last_click_time: std::time::Instant,
     last_click_pos: Option<Point>,
 }
@@ -1733,6 +2416,8 @@ impl Default for CanvasInteractionState {
             rubber_banding: false,
             cmd_held: false,
             shift_held: false,
+            alt_held: false,
+            right_click_on_node: false,
             last_click_time: std::time::Instant::now(),
             last_click_pos: None,
         }
@@ -1879,6 +2564,7 @@ fn draw_drag_overlay(
             false,
             scale,
             false, // ghost node alignment doesn't matter
+            0.0,   // no side column for ghost
         );
     });
 
@@ -1932,4 +2618,30 @@ fn draw_drag_overlay(
             draw_drop_indicator(frame, positions, document, target);
         });
     }
+}
+
+/// Fetch the <title> from a URL. Returns empty string on failure.
+async fn fetch_page_title(url: &str) -> String {
+    let Ok(response) = reqwest::get(url).await else {
+        return String::new();
+    };
+    let Ok(body) = response.text().await else {
+        return String::new();
+    };
+    // Simple <title> extraction — no full HTML parser needed
+    if let Some(start) = body.find("<title>").or_else(|| body.find("<TITLE>")) {
+        let after = &body[start + 7..];
+        if let Some(end) = after.find("</title>").or_else(|| after.find("</TITLE>")) {
+            let title = after[..end].trim();
+            // Decode basic HTML entities
+            return title
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replace("&#x27;", "'");
+        }
+    }
+    String::new()
 }

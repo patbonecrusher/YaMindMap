@@ -193,6 +193,12 @@ pub fn draw_canvas(
             .map(|root_rect| rect.center().x < root_rect.center().x)
             .unwrap_or(false);
 
+        let side_col = if node.content.attachments.is_empty() {
+            0.0
+        } else {
+            node_renderer::SIDE_COLUMN_WIDTH
+        };
+
         node_renderer::draw_node(
             frame,
             rect,
@@ -201,7 +207,21 @@ pub fn draw_canvas(
             is_selected,
             scale,
             is_left_of_root,
+            side_col,
         );
+
+        // Draw attachment icons inside the reserved side column
+        if !node.content.attachments.is_empty() {
+            let padding_h = resolved_style.padding_h.unwrap_or(12.0);
+            node_renderer::draw_attachment_icons(
+                frame,
+                rect,
+                &node.content.attachments,
+                scale,
+                is_left_of_root,
+                padding_h,
+            );
+        }
 
         // Draw fold/unfold badge
         if !node.children.is_empty() && !node.is_root() {

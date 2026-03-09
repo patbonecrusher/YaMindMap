@@ -1,5 +1,6 @@
 use yamind_canvas::CanvasMessage;
 use yamind_core::id::NodeId;
+use yamind_core::node::Attachment;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -38,14 +39,45 @@ pub enum Message {
     WindowOpened(iced::window::Id, iced::Point),
     WindowResized(iced::window::Id, iced::Size),
     WindowMoved(iced::Point),
+    // Attachments
+    AddUrlAttachment,
+    AddDocumentAttachment,
+    AddPhotoAttachment,
+    UrlInputChanged(String),
+    ToggleAutoFillTitle,
+    FetchTitle,
+    TitleFetched(String),
+    SubmitUrlAttachment,
+    CancelUrlAttachment,
+    #[allow(dead_code)]
+    AttachmentPicked(NodeId, Attachment),
+    RemoveAttachment(NodeId, usize),
+    OpenAttachment(NodeId, usize),
+    // Context menu
+    #[allow(dead_code)]
+    ShowContextMenu(iced::Point),     // screen position
+    DismissContextMenu,
+    ContextMenuAction(ContextAction),
+}
+
+#[derive(Debug, Clone)]
+pub enum ContextAction {
+    AddChild,
+    AddSibling,
+    AddUrl,
+    AddDocument,
+    AddPhoto,
+    EditNode,
+    ToggleFold,
+    Delete,
 }
 
 #[derive(Debug, Clone)]
 pub enum CanvasEvent {
-    LeftPress(iced::Point, bool), // point, shift_held
+    LeftPress(iced::Point, bool, bool), // point, shift_held, alt_held
     LeftRelease(iced::Point),
-    #[allow(dead_code)]
     RightPress(iced::Point),
+    RightRelease(iced::Point),
     MiddlePress(iced::Point),
     MiddleRelease,
     CursorMoved(iced::Point),

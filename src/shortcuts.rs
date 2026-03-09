@@ -33,6 +33,16 @@ pub fn handle_key(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<
                     "-" => Some(Message::ZoomOut),
                     "0" => Some(Message::ZoomToFit),
                     "/" => Some(Message::ToggleFold),
+                    "k" => {
+                        if modifiers.shift() {
+                            Some(Message::AddDocumentAttachment)
+                        } else {
+                            Some(Message::AddUrlAttachment)
+                        }
+                    }
+                    "K" => Some(Message::AddDocumentAttachment),
+                    "p" if modifiers.shift() => Some(Message::AddPhotoAttachment),
+                    "P" => Some(Message::AddPhotoAttachment),
                     _ => None,
                 }
             } else {

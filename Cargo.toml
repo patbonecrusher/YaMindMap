@@ -46,6 +46,8 @@ log = { workspace = true }
 env_logger = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png"] }
 rfd = { workspace = true }
+open = "5"
+reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
 libc = "0.2"
 
 [build-dependencies]
