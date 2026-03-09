@@ -464,7 +464,7 @@ impl App {
 
     fn handle_canvas_event(&mut self, event: CanvasEvent) {
         match event {
-            CanvasEvent::LeftPress(pos) => {
+            CanvasEvent::LeftPress(pos, shift_held) => {
                 // If editing, commit on click away
                 if self.editing_node.is_some() {
                     let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
@@ -486,7 +486,18 @@ impl App {
 
                 let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
                 if let Some(node_id) = self.spatial_index.hit_test(world) {
-                    self.selection.select(node_id);
+                    if shift_held {
+                        // Shift-click → toggle selection (add/remove)
+                        self.selection.toggle(node_id);
+                        // If we just deselected, don't start drag/resize
+                        if !self.selection.is_selected(&node_id) {
+                            return;
+                        }
+                    } else if !self.selection.is_selected(&node_id) {
+                        // Not shift, not already selected → single-select
+                        self.selection.select(node_id);
+                    }
+                    // else: already selected without shift → keep multi-selection for drag/resize
 
                     // Check if click is near the outer edge → resize
                     // (left edge for left-side nodes, right edge for right-side nodes)
@@ -503,10 +514,18 @@ impl App {
                     if is_resize {
                         let original_width = self.positions.get(&node_id)
                             .map_or(100.0, |r| r.width);
+                        // Collect other selected nodes' widths for multi-resize
+                        let other_nodes: Vec<(NodeId, f32)> = self.selection.nodes.iter()
+                            .filter(|id| **id != node_id)
+                            .filter_map(|id| {
+                                self.positions.get(id).map(|r| (*id, r.width))
+                            })
+                            .collect();
                         self.interaction = InteractionState::ResizingNode {
                             node_id,
                             start_world_x: world.x,
                             original_width,
+                            other_nodes,
                         };
                     } else {
                         self.interaction = InteractionState::DraggingNode {
@@ -605,16 +624,27 @@ impl App {
                         node_id,
                         start_world_x,
                         original_width,
+                        ref other_nodes,
                     } => {
                         let delta = world.x - start_world_x;
-                        // Left-side nodes grow when dragging left (negative delta)
-                        let new_width = if self.is_left_of_root(&node_id) {
+                        // Resize the primary node
+                        let is_left = self.is_left_of_root(&node_id);
+                        let new_width = if is_left {
                             (original_width - delta).max(40.0)
                         } else {
                             (original_width + delta).max(40.0)
                         };
+                        let width_delta = new_width - original_width;
                         if let Some(node) = self.document.get_node_mut(&node_id) {
                             node.manual_width = Some(new_width);
+                        }
+                        // Apply same width delta to all other selected nodes
+                        let others = other_nodes.clone();
+                        for (other_id, other_orig_width) in &others {
+                            let other_new = (other_orig_width + width_delta).max(40.0);
+                            if let Some(node) = self.document.get_node_mut(other_id) {
+                                node.manual_width = Some(other_new);
+                            }
                         }
                         self.compute_layout();
                     }
@@ -1176,7 +1206,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                     }
                     (
                         canvas::event::Status::Captured,
-                        Some(Message::CanvasEvent(CanvasEvent::LeftPress(cursor_pos))),
+                        Some(Message::CanvasEvent(CanvasEvent::LeftPress(cursor_pos, state.shift_held))),
                     )
                 }
                 mouse::Event::ButtonReleased(mouse::Button::Left) => {
@@ -1259,6 +1289,7 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                 match kb_event {
                     keyboard::Event::ModifiersChanged(mods) => {
                         state.cmd_held = mods.command();
+                        state.shift_held = mods.shift();
                     }
                     _ => {}
                 }
@@ -1406,6 +1437,7 @@ pub struct CanvasInteractionState {
     resizing: bool,
     rubber_banding: bool,
     cmd_held: bool,
+    shift_held: bool,
     last_click_time: std::time::Instant,
     last_click_pos: Option<Point>,
 }
@@ -1418,6 +1450,7 @@ impl Default for CanvasInteractionState {
             resizing: false,
             rubber_banding: false,
             cmd_held: false,
+            shift_held: false,
             last_click_time: std::time::Instant::now(),
             last_click_pos: None,
         }

@@ -25,6 +25,8 @@ pub enum InteractionState {
         node_id: NodeId,
         start_world_x: f32,
         original_width: f32,
+        /// Other selected nodes and their original widths (for multi-resize).
+        other_nodes: Vec<(NodeId, f32)>,
     },
 }
 

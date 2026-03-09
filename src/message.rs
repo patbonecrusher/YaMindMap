@@ -37,7 +37,7 @@ pub enum Message {
 
 #[derive(Debug, Clone)]
 pub enum CanvasEvent {
-    LeftPress(iced::Point),
+    LeftPress(iced::Point, bool), // point, shift_held
     LeftRelease(iced::Point),
     #[allow(dead_code)]
     RightPress(iced::Point),
