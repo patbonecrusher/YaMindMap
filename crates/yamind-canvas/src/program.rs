@@ -8,9 +8,10 @@ use iced::{Color, Point, Rectangle, Renderer, Theme};
 
 use yamind_core::edge::BezierRoute;
 use yamind_core::geometry::{self as geo, Rect};
-use yamind_core::id::NodeId;
+use yamind_core::id::{BoundaryId, NodeId};
 use yamind_core::{Document, Selection};
 
+use crate::boundary_renderer;
 use crate::edge_renderer;
 use crate::hit_test::{NodeHitBox, SpatialIndex};
 use crate::interaction::InteractionState;
@@ -101,6 +102,10 @@ pub struct CanvasData<'a> {
     pub editing_node_id: Option<NodeId>,
     /// Node currently hovered (for showing collapse button).
     pub hover_node_id: Option<NodeId>,
+    /// Currently selected boundary.
+    pub selected_boundary: Option<BoundaryId>,
+    /// Currently hovered boundary.
+    pub hover_boundary: Option<BoundaryId>,
 }
 
 impl canvas::Program<CanvasMessage> for MindMapCanvas {
@@ -159,6 +164,14 @@ pub fn draw_canvas(
         transform.translation.x,
         transform.translation.y,
     ));
+
+    // Draw boundaries (behind edges and nodes)
+    for (bid, boundary) in &data.document.boundaries {
+        if let Some(rect) = boundary_renderer::compute_boundary_rect(boundary, data.positions) {
+            let is_highlighted = data.selected_boundary == Some(*bid) || data.hover_boundary == Some(*bid);
+            boundary_renderer::draw_boundary(frame, boundary, &rect, is_highlighted);
+        }
+    }
 
     // Draw edges
     let edge_color = Color::from_rgb(

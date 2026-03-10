@@ -33,6 +33,8 @@ pub fn handle_key(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<
                     "-" => Some(Message::ZoomOut),
                     "0" => Some(Message::ZoomToFit),
                     "/" => Some(Message::ToggleFold),
+                    "b" if modifiers.shift() => Some(Message::AddBoundary),
+                    "B" => Some(Message::AddBoundary),
                     "k" => {
                         if modifiers.shift() {
                             Some(Message::AddDocumentAttachment)

@@ -1,5 +1,5 @@
 use yamind_canvas::CanvasMessage;
-use yamind_core::id::NodeId;
+use yamind_core::id::{BoundaryId, NodeId};
 use yamind_core::node::Attachment;
 
 #[derive(Debug, Clone)]
@@ -53,6 +53,13 @@ pub enum Message {
     AttachmentPicked(NodeId, Attachment),
     RemoveAttachment(NodeId, usize),
     OpenAttachment(NodeId, usize),
+    // Boundaries
+    AddBoundary,
+    DeleteBoundary(BoundaryId),
+    EditBoundaryLabel(BoundaryId),
+    BoundaryLabelChanged(String),
+    CommitBoundaryLabel,
+    CancelBoundaryLabel,
     // Context menu
     #[allow(dead_code)]
     ShowContextMenu(iced::Point),     // screen position
@@ -70,6 +77,10 @@ pub enum ContextAction {
     EditNode,
     ToggleFold,
     Delete,
+    // Boundary actions
+    AddBoundary,
+    EditBoundaryLabel,
+    DeleteBoundary,
 }
 
 #[derive(Debug, Clone)]

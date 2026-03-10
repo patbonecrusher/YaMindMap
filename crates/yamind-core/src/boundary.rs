@@ -21,9 +21,9 @@ impl Boundary {
             label: String::new(),
             node_ids,
             fill_color: Color::rgba(0.3, 0.5, 0.8, 0.1),
-            stroke_color: Color::rgba(0.3, 0.5, 0.8, 0.3),
+            stroke_color: Color::rgba(0.45, 0.65, 0.95, 0.7),
             stroke_width: 1.5,
-            padding: 20.0,
+            padding: 10.0,
         }
     }
 }

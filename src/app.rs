@@ -14,12 +14,12 @@ use yamind_canvas::program::{draw_canvas, CanvasData};
 use yamind_canvas::viewport::Viewport;
 use yamind_canvas::CanvasMessage;
 use yamind_commands::{
-    AddAttachmentCommand, AddChildCommand, AddSiblingCommand, Command, CommandHistory,
-    DeleteAndReparentCommand, DeleteNodeCommand, EditTextCommand, MoveNodeCommand,
-    RemoveAttachmentCommand,
+    AddAttachmentCommand, AddBoundaryCommand, AddChildCommand, AddSiblingCommand, Command,
+    CommandHistory, DeleteAndReparentCommand, DeleteBoundaryCommand, DeleteNodeCommand,
+    EditBoundaryLabelCommand, EditTextCommand, MoveNodeCommand, RemoveAttachmentCommand,
 };
 use yamind_core::geometry::{self as geo, Rect};
-use yamind_core::id::NodeId;
+use yamind_core::id::{BoundaryId, NodeId};
 use yamind_core::{Document, Selection};
 use yamind_layout::perform_layout;
 
@@ -85,6 +85,11 @@ pub struct App {
 
     // Context menu state
     context_menu: Option<ContextMenuState>,
+
+    // Boundary state
+    selected_boundary: Option<BoundaryId>,
+    hover_boundary: Option<BoundaryId>,
+    editing_boundary: Option<BoundaryLabelEditState>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,11 +101,23 @@ struct UrlInputState {
 }
 
 #[derive(Debug, Clone)]
+struct BoundaryLabelEditState {
+    boundary_id: BoundaryId,
+    label: String,
+}
+
+#[derive(Debug, Clone)]
+enum ContextMenuTarget {
+    Node(NodeId),
+    Boundary(BoundaryId),
+}
+
+#[derive(Debug, Clone)]
 struct ContextMenuState {
     /// Screen-space position where the menu should appear.
     screen_pos: (f32, f32),
-    /// The node that was right-clicked.
-    node_id: NodeId,
+    /// What was right-clicked.
+    target: ContextMenuTarget,
 }
 
 impl App {
@@ -168,6 +185,9 @@ impl App {
             pending_window_restore: None,
             pending_url_input: None,
             context_menu: None,
+            selected_boundary: None,
+            hover_boundary: None,
+            editing_boundary: None,
         };
 
         app.compute_layout();
@@ -207,6 +227,17 @@ impl App {
                 kind: yamind_core::node::AttachmentKind::Photo("/tmp/photo.png".to_string()),
                 label: Some("Photo".to_string()),
             });
+        }
+
+        // Add demo boundary around Branch 3 and its children
+        {
+            let mut node_ids = vec![c3];
+            if let Some(node) = doc.get_node(&c3) {
+                node_ids.extend(node.children.iter());
+            }
+            let mut boundary = yamind_core::boundary::Boundary::new(node_ids);
+            boundary.label = "Group".to_string();
+            doc.boundaries.insert(boundary.id, boundary);
         }
 
         doc
@@ -344,6 +375,19 @@ impl App {
                 _ => return Task::none(),
             }
         }
+        // When boundary label editing is open, only allow label-related messages
+        if self.editing_boundary.is_some() {
+            match &message {
+                Message::BoundaryLabelChanged(_)
+                | Message::CommitBoundaryLabel
+                | Message::CancelBoundaryLabel => {}
+                Message::CancelDelete => {
+                    self.editing_boundary = None;
+                    return Task::none();
+                }
+                _ => return Task::none(),
+            }
+        }
         // When context menu is open, only allow context-menu-related messages
         if self.context_menu.is_some() {
             match &message {
@@ -354,7 +398,20 @@ impl App {
                     self.context_menu = None;
                     return Task::none();
                 }
-                // Any canvas event dismisses context menu
+                // Click events dismiss context menu (but not cursor moves or scroll)
+                Message::CanvasEvent(CanvasEvent::LeftPress(..))
+                | Message::CanvasEvent(CanvasEvent::RightPress(..))
+                | Message::CanvasEvent(CanvasEvent::MiddlePress(..)) => {
+                    self.context_menu = None;
+                    return Task::none();
+                }
+                // Allow cursor moves and scrolls through without dismissing
+                Message::CanvasEvent(CanvasEvent::CursorMoved(_))
+                | Message::CanvasEvent(CanvasEvent::ScrollPan(..))
+                | Message::CanvasEvent(CanvasEvent::ScrollZoom(..)) => {
+                    return Task::none();
+                }
+                // Any other canvas event dismisses
                 Message::CanvasEvent(_) => {
                     self.context_menu = None;
                     return Task::none();
@@ -400,6 +457,12 @@ impl App {
                 self.compute_layout();
             }
             Message::DeleteSelected => {
+                // Delete selected boundary if one is selected and no node is
+                if self.selection.is_empty() {
+                    if let Some(bid) = self.selected_boundary {
+                        return self.update(Message::DeleteBoundary(bid));
+                    }
+                }
                 if let Some(selected_id) = self.selection.single() {
                     // Can't delete root node
                     if self.document.get_node(&selected_id).map_or(true, |n| n.is_root()) {
@@ -721,12 +784,63 @@ impl App {
             Message::OpenAttachment(node_id, idx) => {
                 self.open_attachment(&node_id, idx);
             }
+            Message::AddBoundary => {
+                if let Some(selected_id) = self.selection.single() {
+                    // Boundary wraps the selected node and its children
+                    let mut node_ids = vec![selected_id];
+                    if let Some(node) = self.document.get_node(&selected_id) {
+                        node_ids.extend(node.children.iter());
+                    }
+                    let mut cmd = AddBoundaryCommand::new(node_ids);
+                    cmd.execute(&mut self.document);
+                    let bid = cmd.created_id();
+                    self.history.push_executed(Box::new(cmd));
+                    self.selected_boundary = Some(bid);
+                    self.canvas_cache.clear();
+                }
+            }
+            Message::DeleteBoundary(bid) => {
+                self.history.execute(
+                    Box::new(DeleteBoundaryCommand::new(bid)),
+                    &mut self.document,
+                );
+                if self.selected_boundary == Some(bid) {
+                    self.selected_boundary = None;
+                }
+                self.canvas_cache.clear();
+            }
+            Message::EditBoundaryLabel(bid) => {
+                let label = self.document.boundaries.get(&bid)
+                    .map(|b| b.label.clone())
+                    .unwrap_or_default();
+                self.editing_boundary = Some(BoundaryLabelEditState {
+                    boundary_id: bid,
+                    label,
+                });
+            }
+            Message::BoundaryLabelChanged(new_text) => {
+                if let Some(ref mut state) = self.editing_boundary {
+                    state.label = new_text;
+                }
+            }
+            Message::CommitBoundaryLabel => {
+                if let Some(state) = self.editing_boundary.take() {
+                    self.history.execute(
+                        Box::new(EditBoundaryLabelCommand::new(state.boundary_id, state.label)),
+                        &mut self.document,
+                    );
+                    self.canvas_cache.clear();
+                }
+            }
+            Message::CancelBoundaryLabel => {
+                self.editing_boundary = None;
+            }
             Message::ShowContextMenu(pos) => {
                 let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
                 if let Some(node_id) = self.spatial_index.hit_test(world) {
                     self.context_menu = Some(ContextMenuState {
                         screen_pos: (pos.x, pos.y),
-                        node_id,
+                        target: ContextMenuTarget::Node(node_id),
                     });
                 }
             }
@@ -734,60 +848,71 @@ impl App {
                 self.context_menu = None;
             }
             Message::ContextMenuAction(action) => {
-                let node_id = self.context_menu.as_ref().map(|cm| cm.node_id);
+                let target = self.context_menu.as_ref().map(|cm| cm.target.clone());
                 self.context_menu = None;
-                if let Some(node_id) = node_id {
-                    match action {
-                        ContextAction::AddChild => {
-                            self.selection.select(node_id);
-                            return self.update(Message::AddChild);
-                        }
-                        ContextAction::AddSibling => {
-                            self.selection.select(node_id);
-                            return self.update(Message::AddSibling);
-                        }
-                        ContextAction::AddUrl => {
-                            self.selection.select(node_id);
-                            return self.update(Message::AddUrlAttachment);
-                        }
-                        ContextAction::AddDocument => {
-                            self.selection.select(node_id);
-                            return self.update(Message::AddDocumentAttachment);
-                        }
-                        ContextAction::AddPhoto => {
-                            self.selection.select(node_id);
-                            return self.update(Message::AddPhotoAttachment);
-                        }
-                        ContextAction::EditNode => {
-                            return self.update(Message::StartEditing(node_id));
-                        }
-                        ContextAction::ToggleFold => {
-                            self.selection.select(node_id);
-                            return self.update(Message::ToggleFold);
-                        }
-                        ContextAction::Delete => {
-                            self.selection.select(node_id);
-                            return self.update(Message::DeleteSelected);
-                        }
+                if let Some(target) = target {
+                    match target {
+                        ContextMenuTarget::Node(node_id) => match action {
+                            ContextAction::AddBoundary => {
+                                self.selection.select(node_id);
+                                return self.update(Message::AddBoundary);
+                            }
+                            ContextAction::AddChild => {
+                                self.selection.select(node_id);
+                                return self.update(Message::AddChild);
+                            }
+                            ContextAction::AddSibling => {
+                                self.selection.select(node_id);
+                                return self.update(Message::AddSibling);
+                            }
+                            ContextAction::AddUrl => {
+                                self.selection.select(node_id);
+                                return self.update(Message::AddUrlAttachment);
+                            }
+                            ContextAction::AddDocument => {
+                                self.selection.select(node_id);
+                                return self.update(Message::AddDocumentAttachment);
+                            }
+                            ContextAction::AddPhoto => {
+                                self.selection.select(node_id);
+                                return self.update(Message::AddPhotoAttachment);
+                            }
+                            ContextAction::EditNode => {
+                                return self.update(Message::StartEditing(node_id));
+                            }
+                            ContextAction::ToggleFold => {
+                                self.selection.select(node_id);
+                                return self.update(Message::ToggleFold);
+                            }
+                            ContextAction::Delete => {
+                                self.selection.select(node_id);
+                                return self.update(Message::DeleteSelected);
+                            }
+                            _ => {}
+                        },
+                        ContextMenuTarget::Boundary(bid) => match action {
+                            ContextAction::EditBoundaryLabel => {
+                                return self.update(Message::EditBoundaryLabel(bid));
+                            }
+                            ContextAction::DeleteBoundary => {
+                                return self.update(Message::DeleteBoundary(bid));
+                            }
+                            _ => {}
+                        },
                     }
                 }
             }
             Message::WindowOpened(id, pos) => {
-                eprintln!("[DEBUG] WindowOpened: id={:?} pos=({}, {})", id, pos.x, pos.y);
                 self.window_id = Some(id);
                 self.window_position = Some((pos.x, pos.y));
-                // Apply any pending window restore now that we have the ID
                 return self.apply_pending_window_restore();
             }
             Message::WindowResized(id, size) => {
-                eprintln!("[DEBUG] WindowResized: id={:?} {}x{}", id, size.width, size.height);
                 self.window_id = Some(id);
                 self.screen_size = (size.width, size.height);
-                // Apply any pending window restore now that we have the ID
                 return self.apply_pending_window_restore();
             }
             Message::WindowMoved(pos) => {
-                eprintln!("[DEBUG] WindowMoved: ({}, {})", pos.x, pos.y);
                 self.window_position = Some((pos.x, pos.y));
             }
         }
@@ -835,6 +960,7 @@ impl App {
                 }
 
                 if let Some(node_id) = self.spatial_index.hit_test(world) {
+                    self.selected_boundary = None;
                     if shift_held {
                         // Shift-click → toggle selection (add/remove)
                         self.selection.toggle(node_id);
@@ -886,12 +1012,19 @@ impl App {
                         self.drop_target = None;
                     }
                 } else {
-                    self.selection.clear();
-                    // Start rubber band selection on empty space
-                    self.interaction = InteractionState::RubberBandSelect {
-                        start_world_pos: world,
-                        current_world_pos: world,
-                    };
+                    // Check if clicking on a boundary border
+                    if let Some(bid) = self.hit_test_boundary(world) {
+                        self.selected_boundary = Some(bid);
+                        self.selection.clear();
+                    } else {
+                        self.selection.clear();
+                        self.selected_boundary = None;
+                        // Start rubber band selection on empty space
+                        self.interaction = InteractionState::RubberBandSelect {
+                            start_world_pos: world,
+                            current_world_pos: world,
+                        };
+                    }
                 }
                 self.canvas_cache.clear();
             }
@@ -1028,6 +1161,16 @@ impl App {
                             self.hover_node = new_hover;
                             self.canvas_cache.clear();
                         }
+                        // Update boundary hover (only when not over a node)
+                        let new_boundary_hover = if new_hover.is_some() {
+                            None
+                        } else {
+                            self.hit_test_boundary(world)
+                        };
+                        if new_boundary_hover != self.hover_boundary {
+                            self.hover_boundary = new_boundary_hover;
+                            self.canvas_cache.clear();
+                        }
                     }
                 }
             }
@@ -1056,20 +1199,34 @@ impl App {
                     self.canvas_cache.clear();
                     return iced::widget::focus_next();
                 }
+                // Double-click on boundary → edit label
+                if let Some(bid) = self.hit_test_boundary(world) {
+                    self.selected_boundary = Some(bid);
+                    return self.update(Message::EditBoundaryLabel(bid));
+                }
             }
-            CanvasEvent::RightPress(pos) => {
+            CanvasEvent::RightPress(_pos) => {
+                // Wait for release to show context menu
+            }
+            CanvasEvent::RightRelease(pos) => {
                 let world = self.viewport.screen_to_world(geo::Point::new(pos.x, pos.y));
                 if let Some(node_id) = self.spatial_index.hit_test(world) {
                     self.selection.select(node_id);
+                    self.selected_boundary = None;
                     self.context_menu = Some(ContextMenuState {
                         screen_pos: (pos.x, pos.y),
-                        node_id,
+                        target: ContextMenuTarget::Node(node_id),
+                    });
+                    self.canvas_cache.clear();
+                } else if let Some(bid) = self.hit_test_boundary(world) {
+                    self.selected_boundary = Some(bid);
+                    self.selection.clear();
+                    self.context_menu = Some(ContextMenuState {
+                        screen_pos: (pos.x, pos.y),
+                        target: ContextMenuTarget::Boundary(bid),
                     });
                     self.canvas_cache.clear();
                 }
-            }
-            CanvasEvent::RightRelease(_pos) => {
-                // Context menu shown on press; nothing to do on release.
             }
         }
         Task::none()
@@ -1214,6 +1371,18 @@ impl App {
             for (idx, rect) in self.attachment_icon_rects(id) {
                 if rect.contains(world) {
                     return Some((*id, idx));
+                }
+            }
+        }
+        None
+    }
+
+    /// Hit-test boundaries: check if a world point is anywhere inside a boundary rect.
+    fn hit_test_boundary(&self, world: geo::Point) -> Option<BoundaryId> {
+        for (bid, boundary) in &self.document.boundaries {
+            if let Some(rect) = yamind_canvas::boundary_renderer::compute_boundary_rect(boundary, &self.positions) {
+                if rect.contains(world) {
+                    return Some(*bid);
                 }
             }
         }
@@ -1528,6 +1697,8 @@ impl App {
             rubber_band,
             editing_node_id,
             hover_node_id: self.hover_node,
+            selected_boundary: self.selected_boundary,
+            hover_boundary: self.hover_boundary,
         })
         .width(Length::Fill)
         .height(Length::Fill);
@@ -1623,7 +1794,8 @@ impl App {
                     .height(Length::Fill);
                 let with_delete = self.maybe_with_delete_dialog(base.into());
                 let with_url = self.maybe_with_url_input(with_delete);
-                return self.maybe_with_context_menu(with_url);
+                let with_boundary = self.maybe_with_boundary_label_input(with_url);
+                return self.maybe_with_context_menu(with_boundary);
             }
         }
 
@@ -1632,7 +1804,8 @@ impl App {
             .height(Length::Fill);
         let with_delete = self.maybe_with_delete_dialog(base.into());
         let with_url = self.maybe_with_url_input(with_delete);
-        self.maybe_with_context_menu(with_url)
+        let with_boundary = self.maybe_with_boundary_label_input(with_url);
+        self.maybe_with_context_menu(with_boundary)
     }
 
     fn maybe_with_delete_dialog<'a>(&'a self, base: Element<'a, Message>) -> Element<'a, Message> {
@@ -1890,15 +2063,95 @@ impl App {
             .into()
     }
 
+    fn maybe_with_boundary_label_input<'a>(&'a self, base: Element<'a, Message>) -> Element<'a, Message> {
+        let Some(ref edit_state) = self.editing_boundary else {
+            return base;
+        };
+
+        let title = text("Boundary Label").size(16).color(iced::Color::WHITE);
+
+        let input = iced::widget::text_input("Enter label…", &edit_state.label)
+            .on_input(Message::BoundaryLabelChanged)
+            .on_submit(Message::CommitBoundaryLabel)
+            .size(14)
+            .padding([8, 12])
+            .width(300.0);
+
+        let ok_btn = button(text("OK").size(13))
+            .on_press(Message::CommitBoundaryLabel)
+            .padding([6, 16])
+            .style(|_theme, _status| button::Style {
+                background: Some(iced::Background::Color(iced::Color::from_rgb(0.3, 0.5, 0.9))),
+                text_color: iced::Color::WHITE,
+                border: iced::Border {
+                    radius: 4.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+
+        let cancel_btn = button(text("Cancel").size(13))
+            .on_press(Message::CancelBoundaryLabel)
+            .padding([6, 16])
+            .style(|_theme, _status| button::Style {
+                background: Some(iced::Background::Color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.1))),
+                text_color: iced::Color::WHITE,
+                border: iced::Border {
+                    color: iced::Color::from_rgba(1.0, 1.0, 1.0, 0.2),
+                    width: 1.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            });
+
+        let buttons_row = row![cancel_btn, ok_btn].spacing(8);
+
+        let dialog = container(
+            column![title, input, buttons_row]
+                .spacing(12)
+                .align_x(iced::Alignment::Center),
+        )
+        .padding(20)
+        .width(340.0)
+        .style(|_theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgba(0.14, 0.14, 0.18, 0.97))),
+            border: iced::Border {
+                color: iced::Color::from_rgb(0.3, 0.3, 0.4),
+                width: 1.0,
+                radius: 12.0.into(),
+            },
+            ..Default::default()
+        });
+
+        let centered = container(dialog)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill);
+
+        let backdrop = container(
+            button(container("").width(Length::Fill).height(Length::Fill))
+                .on_press(Message::CancelBoundaryLabel)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(|_theme, _status| button::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.4))),
+                    ..Default::default()
+                }),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        stack![base, backdrop, centered]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+
     fn maybe_with_context_menu<'a>(&'a self, base: Element<'a, Message>) -> Element<'a, Message> {
         let Some(ref cm) = self.context_menu else {
             return base;
         };
-
-        let node = self.document.get_node(&cm.node_id);
-        let is_root = node.map_or(false, |n| n.is_root());
-        let has_children = node.map_or(false, |n| !n.children.is_empty());
-        let is_collapsed = node.map_or(false, |n| n.collapsed);
 
         let menu_item = |label: &'a str, action: ContextAction| -> Element<'a, Message> {
             button(text(label).size(13))
@@ -1920,6 +2173,26 @@ impl App {
                 .into()
         };
 
+        let delete_item = |label: &'a str, action: ContextAction| -> Element<'a, Message> {
+            button(text(label).size(13))
+                .on_press(Message::ContextMenuAction(action))
+                .width(Length::Fill)
+                .padding([6, 14])
+                .style(|_theme, status| {
+                    let bg = match status {
+                        button::Status::Hovered => iced::Color::from_rgba(0.8, 0.2, 0.2, 0.4),
+                        _ => iced::Color::TRANSPARENT,
+                    };
+                    button::Style {
+                        background: Some(iced::Background::Color(bg)),
+                        text_color: iced::Color::from_rgb(1.0, 0.4, 0.4),
+                        border: iced::Border::default(),
+                        ..Default::default()
+                    }
+                })
+                .into()
+        };
+
         let sep = || -> Element<'a, Message> {
             container("")
                 .width(Length::Fill)
@@ -1932,41 +2205,39 @@ impl App {
         };
 
         let mut items: Vec<Element<'_, Message>> = Vec::new();
-        items.push(menu_item("Add Child", ContextAction::AddChild));
-        if !is_root {
-            items.push(menu_item("Add Sibling", ContextAction::AddSibling));
-        }
-        items.push(sep());
-        items.push(menu_item("Insert Web Link…", ContextAction::AddUrl));
-        items.push(menu_item("Attach Document…", ContextAction::AddDocument));
-        items.push(menu_item("Attach Photo…", ContextAction::AddPhoto));
-        items.push(sep());
-        items.push(menu_item("Edit", ContextAction::EditNode));
-        if has_children {
-            let fold_label = if is_collapsed { "Expand" } else { "Collapse" };
-            items.push(menu_item(fold_label, ContextAction::ToggleFold));
-        }
-        if !is_root {
-            items.push(sep());
-            items.push(
-                button(text("Delete").size(13))
-                    .on_press(Message::ContextMenuAction(ContextAction::Delete))
-                    .width(Length::Fill)
-                    .padding([6, 14])
-                    .style(|_theme, status| {
-                        let bg = match status {
-                            button::Status::Hovered => iced::Color::from_rgba(0.8, 0.2, 0.2, 0.4),
-                            _ => iced::Color::TRANSPARENT,
-                        };
-                        button::Style {
-                            background: Some(iced::Background::Color(bg)),
-                            text_color: iced::Color::from_rgb(1.0, 0.4, 0.4),
-                            border: iced::Border::default(),
-                            ..Default::default()
-                        }
-                    })
-                    .into(),
-            );
+
+        match &cm.target {
+            ContextMenuTarget::Node(node_id) => {
+                let node = self.document.get_node(node_id);
+                let is_root = node.map_or(false, |n| n.is_root());
+                let has_children = node.map_or(false, |n| !n.children.is_empty());
+                let is_collapsed = node.map_or(false, |n| n.collapsed);
+
+                items.push(menu_item("Add Child", ContextAction::AddChild));
+                if !is_root {
+                    items.push(menu_item("Add Sibling", ContextAction::AddSibling));
+                }
+                items.push(sep());
+                items.push(menu_item("Insert Web Link…", ContextAction::AddUrl));
+                items.push(menu_item("Attach Document…", ContextAction::AddDocument));
+                items.push(menu_item("Attach Photo…", ContextAction::AddPhoto));
+                items.push(sep());
+                items.push(menu_item("Edit", ContextAction::EditNode));
+                items.push(menu_item("Add Boundary", ContextAction::AddBoundary));
+                if has_children {
+                    let fold_label = if is_collapsed { "Expand" } else { "Collapse" };
+                    items.push(menu_item(fold_label, ContextAction::ToggleFold));
+                }
+                if !is_root {
+                    items.push(sep());
+                    items.push(delete_item("Delete", ContextAction::Delete));
+                }
+            }
+            ContextMenuTarget::Boundary(_bid) => {
+                items.push(menu_item("Edit Label", ContextAction::EditBoundaryLabel));
+                items.push(sep());
+                items.push(delete_item("Delete", ContextAction::DeleteBoundary));
+            }
         }
 
         let menu_col = iced::widget::Column::with_children(items)
@@ -2076,6 +2347,8 @@ struct MindMapProgram<'a> {
     editing_node_id: Option<NodeId>,
     hover_node_id: Option<NodeId>,
     rubber_band: Option<(geo::Point, geo::Point)>,
+    selected_boundary: Option<BoundaryId>,
+    hover_boundary: Option<BoundaryId>,
 }
 
 impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
@@ -2170,12 +2443,16 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                     )
                 }
                 mouse::Event::ButtonPressed(mouse::Button::Right) => {
-                    // Check if right-clicking on a node → context menu
+                    // Check if right-clicking on a node or boundary → context menu
                     let world = self.viewport.screen_to_world(
                         geo::Point::new(cursor_pos.x, cursor_pos.y),
                     );
                     let hit_node = self.positions.iter().any(|(_, rect)| rect.contains(world));
-                    if hit_node {
+                    let hit_boundary = self.document.boundaries.values().any(|b| {
+                        yamind_canvas::boundary_renderer::compute_boundary_rect(b, self.positions)
+                            .map_or(false, |r| r.contains(world))
+                    });
+                    if hit_node || hit_boundary {
                         state.right_click_on_node = true;
                         (
                             canvas::event::Status::Captured,
@@ -2278,6 +2555,8 @@ impl<'a> canvas::Program<Message> for MindMapProgram<'a> {
                 edge_routes: self.edge_routes,
                 editing_node_id: self.editing_node_id,
                 hover_node_id: self.hover_node_id,
+                selected_boundary: self.selected_boundary,
+                hover_boundary: self.hover_boundary,
             };
             draw_canvas(frame, self.viewport, &data);
         });

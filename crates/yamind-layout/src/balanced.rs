@@ -130,6 +130,37 @@ fn partition_children(
     }
 }
 
+use yamind_core::id::BoundaryId;
+
+/// Returns the boundary ID and padding if this node belongs to any boundary.
+fn node_boundary_info(document: &Document, node_id: &NodeId) -> Option<(BoundaryId, f32)> {
+    for boundary in document.boundaries.values() {
+        if boundary.node_ids.contains(node_id) {
+            return Some((boundary.id, boundary.padding));
+        }
+    }
+    None
+}
+
+/// Extra gap to insert between `children[i]` and `children[i+1]` due to boundaries.
+/// Only adds gap when nodes transition between different boundaries or in/out of a boundary.
+fn boundary_gap_between(document: &Document, children: &[NodeId], i: usize) -> f32 {
+    if i + 1 >= children.len() {
+        return 0.0;
+    }
+    let cur = node_boundary_info(document, &children[i]);
+    let next = node_boundary_info(document, &children[i + 1]);
+
+    match (cur, next) {
+        // Same boundary — no extra gap needed
+        (Some((id_a, _)), Some((id_b, _))) if id_a == id_b => 0.0,
+        // Different boundaries or transitioning in/out — add padding from both sides
+        (Some((_, pad_a)), Some((_, pad_b))) => pad_a + pad_b,
+        (Some((_, pad)), None) | (None, Some((_, pad))) => pad,
+        (None, None) => 0.0,
+    }
+}
+
 fn estimate_subtree_height(
     document: &Document,
     node_id: &NodeId,
@@ -181,8 +212,13 @@ fn layout_children_column(
         .map(|c| estimate_subtree_height(document, c, node_sizes, v_gap))
         .collect();
 
+    let boundary_gaps: Vec<f32> = (0..children.len())
+        .map(|i| boundary_gap_between(document, children, i))
+        .collect();
+
     let total_height: f32 = subtree_heights.iter().sum::<f32>()
-        + (children.len() as f32 - 1.0) * v_gap;
+        + (children.len() as f32 - 1.0) * v_gap
+        + boundary_gaps.iter().sum::<f32>();
 
     let mut current_y = center_y - total_height / 2.0;
 
@@ -231,6 +267,6 @@ fn layout_children_column(
             }
         }
 
-        current_y += subtree_h + v_gap;
+        current_y += subtree_h + v_gap + boundary_gaps[i];
     }
 }

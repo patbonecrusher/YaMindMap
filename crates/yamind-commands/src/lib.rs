@@ -9,6 +9,7 @@ pub mod style_cmds;
 pub use command::Command;
 pub use composite::CompositeCommand;
 pub use history::CommandHistory;
+pub use boundary_cmds::{AddBoundaryCommand, DeleteBoundaryCommand, EditBoundaryLabelCommand};
 pub use node_cmds::{
     AddAttachmentCommand, AddChildCommand, AddSiblingCommand, DeleteAndReparentCommand,
     DeleteNodeCommand, EditTextCommand, MoveNodeCommand, RemoveAttachmentCommand,
