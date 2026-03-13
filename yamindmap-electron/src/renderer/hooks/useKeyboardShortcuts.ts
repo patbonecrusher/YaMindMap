@@ -29,8 +29,10 @@ export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDoc
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      // Don't handle shortcuts when editing text
+      // Don't handle shortcuts when editing text or when focus is in an input/dialog
       if (editingNodeId) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
 
       const meta = e.metaKey || e.ctrlKey
       const shift = e.shiftKey
