@@ -71,6 +71,13 @@ export function useKeyboardShortcuts({ onDeleteConfirm }: KeyboardShortcutsOptio
       // Everything below requires a selected node
       if (!selectedId) return
 
+      // E — edit selected node
+      if (e.key === 'e' && !meta && !shift) {
+        e.preventDefault()
+        startEditing(selectedId, false)
+        return
+      }
+
       // Tab — add child
       if (e.key === 'Tab' && !meta && !shift) {
         e.preventDefault()

@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useStore } from '../../store'
 import { DeleteNodeCommand, DeleteAndReparentCommand } from '../../../shared/commands/node-commands'
 import type { DeleteDialogState } from '../../hooks/useKeyboardShortcuts'
@@ -64,6 +64,17 @@ export function DeleteConfirmDialog({ state, onClose }: DeleteConfirmDialogProps
     clearSelection()
     onClose()
   }, [executeCommand, clearSelection, state.nodeId, onClose])
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [onClose])
 
   const handleKeepChildren = useCallback(() => {
     executeCommand(new DeleteAndReparentCommand(state.nodeId))
