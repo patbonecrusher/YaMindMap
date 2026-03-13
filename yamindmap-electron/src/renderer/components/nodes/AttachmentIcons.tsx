@@ -65,7 +65,7 @@ export function AttachmentIcons({ nodeId, attachments, onOpen, onRemove }: Attac
   return (
     <div style={{
       position: 'absolute',
-      right: 4,
+      right: 12,
       top: '50%',
       transform: 'translateY(-50%)',
       display: 'flex',
