@@ -7,6 +7,7 @@ import { MindMapCanvas } from './components/MindMapCanvas'
 import { DeleteConfirmDialog } from './components/dialogs/DeleteConfirmDialog'
 import { UrlInputDialog } from './components/dialogs/UrlInputDialog'
 import { ContextMenu } from './components/overlays/ContextMenu'
+import { DragOverlay } from './components/overlays/DragOverlay'
 import { AddAttachmentCommand } from '../shared/commands/attachment-commands'
 import { EditTextCommand } from '../shared/commands/node-commands'
 
@@ -82,6 +83,7 @@ function AppContent() {
   return (
     <>
       <MindMapCanvas doc={doc} layout={layout} />
+      <DragOverlay />
       {contextMenuPosition && (
         <ContextMenu
           x={contextMenuPosition.x}

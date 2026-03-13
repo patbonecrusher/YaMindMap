@@ -56,7 +56,7 @@ export function MindMapCanvas({ doc, layout }: MindMapCanvasProps) {
         nodesConnectable={false}
         elementsSelectable={true}
         selectNodesOnDrag={false}
-        panOnDrag
+        panOnDrag={false}
         panOnScroll
         zoomOnScroll={false}
         zoomOnPinch

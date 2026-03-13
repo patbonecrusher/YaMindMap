@@ -19,6 +19,7 @@ function resetStore() {
     stylePanelOpen: false,
     dropTargetNodeId: null,
     draggingNodeId: null,
+    dragPosition: null,
     history: new CommandHistory()
   })
 }

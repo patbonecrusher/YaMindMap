@@ -38,9 +38,8 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
   }, [executeCommand])
 
   // Resize handle
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleResizePointerDown = useCallback((e: React.PointerEvent) => {
     e.stopPropagation()
-    e.preventDefault()
 
     const startX = e.clientX
     const startWidth = data.nodeWidth
@@ -76,7 +75,7 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
   const resizeHandleSide = data.isLeftOfRoot ? 'left' : 'right'
   const resizeHandle = !data.isRoot ? (
     <div
-      onMouseDown={handleResizeMouseDown}
+      onPointerDown={handleResizePointerDown}
       style={{
         position: 'absolute',
         top: 0,
@@ -93,13 +92,13 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
   const dropTargetNodeId = useStore((s) => s.dropTargetNodeId)
   const isDropTarget = dropTargetNodeId === data.nodeId
 
-  const handleNodeMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleNodePointerDown = useCallback((e: React.PointerEvent) => {
     // Don't start drag on root, when editing, or from resize handle
     if (data.isRoot || isEditing) return
     // Only left button
     if (e.button !== 0) return
 
-    // Stop propagation to prevent React Flow pan
+    // Stop propagation to prevent React Flow pan (RF uses pointer events)
     e.stopPropagation()
 
     const startX = e.clientX
@@ -121,7 +120,7 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
         const cy = rect.top + rect.height / 2
         const dist = Math.sqrt((clientX - cx) ** 2 + (clientY - cy) ** 2)
 
-        if (dist < 100 && (!closest || dist < closest.dist)) {
+        if (!closest || dist < closest.dist) {
           closest = { id, dist }
         }
       })
@@ -139,23 +138,27 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
         document.body.style.cursor = 'grabbing'
       }
       const targetId = findDropTarget(me.clientX, me.clientY)
-      useStore.getState().setDropTarget(targetId)
+      const store = useStore.getState()
+      store.setDropTarget(targetId)
+      store.setDragPosition({ x: me.clientX, y: me.clientY })
     }
 
     const handleMouseUp = (me: MouseEvent): void => {
       if (isDragging) {
-        const targetId = useStore.getState().dropTargetNodeId
+        const store = useStore.getState()
+        const targetId = store.dropTargetNodeId
         if (targetId) {
-          const doc = useStore.getState().document
+          const doc = store.document
           const targetNode = doc.nodes.get(targetId)
           if (targetNode) {
-            useStore.getState().executeCommand(
+            store.executeCommand(
               new MoveNodeCommand(data.nodeId, targetId, targetNode.children.length)
             )
           }
         }
-        useStore.getState().setDraggingNode(null)
-        useStore.getState().setDropTarget(null)
+        store.setDraggingNode(null)
+        store.setDropTarget(null)
+        store.setDragPosition(null)
         document.body.style.cursor = ''
       } else {
         // Was a click, not a drag — trigger select
@@ -238,7 +241,7 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
 
   if (data.shape === 'Diamond') {
     return (
-      <div style={{ position: 'relative', width: '100%', height: '100%' }} onMouseDown={handleNodeMouseDown}>
+      <div style={{ position: 'relative', width: '100%', height: '100%' }} onPointerDown={handleNodePointerDown}>
         <div style={style}>
           <div style={getDiamondContentStyle()}>
             {!isEditing && <span>{data.label}</span>}
@@ -259,7 +262,7 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
       style={{ position: 'relative', width: '100%', height: '100%' }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onMouseDown={handleNodeMouseDown}
+      onPointerDown={handleNodePointerDown}
     >
       <div style={style}>
         {!isEditing && <span>{data.label}</span>}

@@ -10,6 +10,7 @@ export interface UiSlice {
   stylePanelOpen: boolean
   dropTargetNodeId: NodeId | null
   draggingNodeId: NodeId | null
+  dragPosition: { x: number; y: number } | null
   setEditingNodeId: (id: NodeId | null) => void
   setIsNewNode: (isNew: boolean) => void
   startEditing: (id: NodeId, isNew: boolean) => void
@@ -18,6 +19,7 @@ export interface UiSlice {
   toggleStylePanel: () => void
   setDropTarget: (nodeId: NodeId | null) => void
   setDraggingNode: (nodeId: NodeId | null) => void
+  setDragPosition: (pos: { x: number; y: number } | null) => void
 }
 
 export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set) => ({
@@ -28,6 +30,7 @@ export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set) =>
   stylePanelOpen: false,
   dropTargetNodeId: null,
   draggingNodeId: null,
+  dragPosition: null,
 
   setEditingNodeId: (id) => set({ editingNodeId: id }),
   setIsNewNode: (isNew) => set({ isNewNode: isNew }),
@@ -43,5 +46,6 @@ export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set) =>
     set((state) => ({ stylePanelOpen: !state.stylePanelOpen })),
 
   setDropTarget: (nodeId) => set({ dropTargetNodeId: nodeId }),
-  setDraggingNode: (nodeId) => set({ draggingNodeId: nodeId })
+  setDraggingNode: (nodeId) => set({ draggingNodeId: nodeId }),
+  setDragPosition: (pos) => set({ dragPosition: pos })
 })
