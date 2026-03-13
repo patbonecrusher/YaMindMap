@@ -1,0 +1,27 @@
+appId: com.yamindmap.app
+productName: YaMindMap
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**/*
+mac:
+  icon: resources/icon.icns
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+  fileAssociations:
+    - ext: yamind
+      name: YaMindMap Document
+      role: Editor
+      icon: resources/icon.icns
+win:
+  icon: resources/icon.ico
+  target:
+    - nsis
+linux:
+  icon: resources/icon.png
+  target:
+    - AppImage
+  category: Office

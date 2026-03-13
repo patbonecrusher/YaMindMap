@@ -8,6 +8,7 @@ import { DeleteConfirmDialog } from './components/dialogs/DeleteConfirmDialog'
 import { UrlInputDialog } from './components/dialogs/UrlInputDialog'
 import { ContextMenu } from './components/overlays/ContextMenu'
 import { DragOverlay } from './components/overlays/DragOverlay'
+import { useFileOperations } from './hooks/useFileOperations'
 import { AddAttachmentCommand } from '../shared/commands/attachment-commands'
 import { EditTextCommand } from '../shared/commands/node-commands'
 
@@ -72,6 +73,8 @@ function AppContent() {
       label: filename
     }))
   }, [executeCommand])
+
+  useFileOperations()
 
   useKeyboardShortcuts({
     onDeleteConfirm: handleDeleteConfirm,

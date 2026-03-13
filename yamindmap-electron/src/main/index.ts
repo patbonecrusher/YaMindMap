@@ -1,33 +1,37 @@
 import { app, BrowserWindow } from 'electron'
-import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc-handlers'
+import { registerFileOperations } from './file-operations'
+import { createWindow } from './window-manager'
+import { setupMenu } from './menu'
 
 if (is.dev) {
   app.commandLine.appendSwitch('remote-debugging-port', '9333')
 }
 
-function createWindow(): void {
-  const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    title: 'YaMindMap',
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
-  })
+// Track file to open from Finder / argv
+let pendingFilePath: string | null = null
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+// macOS: file opened via Finder double-click or drag
+app.on('open-file', (event, filePath) => {
+  event.preventDefault()
+  if (app.isReady()) {
+    createWindow(filePath)
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
+    pendingFilePath = filePath
   }
-}
+})
 
 app.whenReady().then(() => {
   registerIpcHandlers()
-  createWindow()
+  registerFileOperations()
+  setupMenu()
+
+  // Check argv for file path (non-mac)
+  const fileArg = process.argv.find((arg) => arg.endsWith('.yamind'))
+  const initialFile = pendingFilePath || fileArg || null
+
+  createWindow(initialFile)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
