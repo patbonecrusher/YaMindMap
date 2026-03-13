@@ -25,6 +25,8 @@ export interface MindMapNodeData {
   collapsed: boolean
   childCount: number
   isLeftOfRoot: boolean
+  isRoot: boolean
+  nodeWidth: number
 }
 
 export function toReactFlowNodes(
@@ -63,7 +65,9 @@ export function toReactFlowNodes(
         attachments: node.content.attachments,
         collapsed: node.collapsed,
         childCount: node.children.length,
-        isLeftOfRoot: rect.x < 0 && depth > 0
+        isLeftOfRoot: rect.x < 0 && depth > 0,
+        isRoot: node.parent === null,
+        nodeWidth: rect.width
       },
       width: rect.width,
       height: rect.height,

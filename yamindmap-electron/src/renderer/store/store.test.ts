@@ -17,6 +17,8 @@ function resetStore() {
     contextMenuPosition: null,
     contextMenuTargetId: null,
     stylePanelOpen: false,
+    dropTargetNodeId: null,
+    draggingNodeId: null,
     history: new CommandHistory()
   })
 }

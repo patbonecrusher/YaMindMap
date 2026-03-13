@@ -200,3 +200,32 @@ export class MoveNodeCommand implements Command {
     }
   }
 }
+
+export class ResizeNodeCommand implements Command {
+  readonly type = 'ResizeNode'
+  private oldWidths: Map<NodeId, number | null> = new Map()
+
+  constructor(
+    private nodeIds: NodeId[],
+    private newWidth: number
+  ) {}
+
+  execute(doc: Document): void {
+    for (const id of this.nodeIds) {
+      const node = doc.nodes.get(id)
+      if (node) {
+        this.oldWidths.set(id, node.manual_width)
+        node.manual_width = this.newWidth
+      }
+    }
+  }
+
+  undo(doc: Document): void {
+    for (const [id, oldWidth] of this.oldWidths) {
+      const node = doc.nodes.get(id)
+      if (node) {
+        node.manual_width = oldWidth
+      }
+    }
+  }
+}

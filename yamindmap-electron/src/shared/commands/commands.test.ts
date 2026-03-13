@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createDocumentWithRoot } from '../types/document'
 import { addChild } from '../document-ops'
 import { CommandHistory } from './history'
-import { AddChildCommand, AddSiblingCommand, DeleteNodeCommand, DeleteAndReparentCommand, EditTextCommand, MoveNodeCommand } from './node-commands'
+import { AddChildCommand, AddSiblingCommand, DeleteNodeCommand, DeleteAndReparentCommand, EditTextCommand, MoveNodeCommand, ResizeNodeCommand } from './node-commands'
 import { AddAttachmentCommand, RemoveAttachmentCommand } from './attachment-commands'
 import { AddBoundaryCommand, DeleteBoundaryCommand, EditBoundaryLabelCommand } from './boundary-commands'
 
@@ -286,5 +286,46 @@ describe('CommandHistory', () => {
     history.undo(doc)
     expect(history.canUndo).toBe(false)
     expect(history.canRedo).toBe(true)
+  })
+})
+
+describe('ResizeNodeCommand', () => {
+  it('sets manual_width on single node', () => {
+    const { doc, b1 } = makeDoc()
+    const history = new CommandHistory()
+
+    expect(doc.nodes.get(b1)!.manual_width).toBeNull()
+    history.execute(new ResizeNodeCommand([b1], 200), doc)
+    expect(doc.nodes.get(b1)!.manual_width).toBe(200)
+  })
+
+  it('undo restores original width', () => {
+    const { doc, b1 } = makeDoc()
+    const history = new CommandHistory()
+
+    history.execute(new ResizeNodeCommand([b1], 200), doc)
+    history.undo(doc)
+    expect(doc.nodes.get(b1)!.manual_width).toBeNull()
+  })
+
+  it('resizes multiple nodes at once', () => {
+    const { doc, b1, b2 } = makeDoc()
+    const history = new CommandHistory()
+
+    history.execute(new ResizeNodeCommand([b1, b2], 150), doc)
+    expect(doc.nodes.get(b1)!.manual_width).toBe(150)
+    expect(doc.nodes.get(b2)!.manual_width).toBe(150)
+  })
+
+  it('undo restores all original widths in multi-resize', () => {
+    const { doc, b1, b2 } = makeDoc()
+    const history = new CommandHistory()
+
+    // Set b1 to have an existing manual_width
+    doc.nodes.get(b1)!.manual_width = 100
+    history.execute(new ResizeNodeCommand([b1, b2], 200), doc)
+    history.undo(doc)
+    expect(doc.nodes.get(b1)!.manual_width).toBe(100)
+    expect(doc.nodes.get(b2)!.manual_width).toBeNull()
   })
 })
