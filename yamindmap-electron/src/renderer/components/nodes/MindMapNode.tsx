@@ -99,6 +99,9 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
     // Only left button
     if (e.button !== 0) return
 
+    // Stop propagation to prevent React Flow pan
+    e.stopPropagation()
+
     const startX = e.clientX
     const startY = e.clientY
     let isDragging = false
@@ -154,6 +157,14 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
         useStore.getState().setDraggingNode(null)
         useStore.getState().setDropTarget(null)
         document.body.style.cursor = ''
+      } else {
+        // Was a click, not a drag — trigger select
+        const state = useStore.getState()
+        if (me.shiftKey) {
+          state.toggleSelect(data.nodeId)
+        } else {
+          state.select(data.nodeId)
+        }
       }
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
