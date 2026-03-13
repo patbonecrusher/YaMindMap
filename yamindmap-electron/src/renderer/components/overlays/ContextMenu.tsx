@@ -14,6 +14,9 @@ interface ContextMenuProps {
   onClose: () => void
   onStartEdit: (nodeId: string, isNew: boolean) => void
   onDeleteConfirm: (nodeId: string) => void
+  onInsertUrl: (nodeId: string) => void
+  onAttachDocument: (nodeId: string) => void
+  onAttachPhoto: (nodeId: string) => void
 }
 
 const menuStyle: React.CSSProperties = {
@@ -72,7 +75,7 @@ function Separator() {
   return <div style={separatorStyle} />
 }
 
-export function ContextMenu({ x, y, targetId, onClose, onStartEdit, onDeleteConfirm }: ContextMenuProps) {
+export function ContextMenu({ x, y, targetId, onClose, onStartEdit, onDeleteConfirm, onInsertUrl, onAttachDocument, onAttachPhoto }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const document = useStore((s) => s.document)
   const executeCommand = useStore((s) => s.executeCommand)
@@ -142,6 +145,24 @@ export function ContextMenu({ x, y, targetId, onClose, onStartEdit, onDeleteConf
     onClose()
   }, [targetId, node, onClose])
 
+  const handleInsertUrl = useCallback(() => {
+    if (!targetId) return
+    onInsertUrl(targetId)
+    onClose()
+  }, [targetId, onInsertUrl, onClose])
+
+  const handleAttachDocument = useCallback(() => {
+    if (!targetId) return
+    onAttachDocument(targetId)
+    onClose()
+  }, [targetId, onAttachDocument, onClose])
+
+  const handleAttachPhoto = useCallback(() => {
+    if (!targetId) return
+    onAttachPhoto(targetId)
+    onClose()
+  }, [targetId, onAttachPhoto, onClose])
+
   const handleDelete = useCallback(() => {
     if (!targetId || !node || isRoot) return
     if (node.children.length > 0) {
@@ -165,7 +186,11 @@ export function ContextMenu({ x, y, targetId, onClose, onStartEdit, onDeleteConf
         <MenuItem label="Add Sibling" shortcut="Enter" onClick={handleAddSibling} />
       )}
       <Separator />
-      <MenuItem label="Edit" onClick={handleEdit} />
+      <MenuItem label="Edit" shortcut="E" onClick={handleEdit} />
+      <Separator />
+      <MenuItem label="Insert Web Link" shortcut="⌘K" onClick={handleInsertUrl} />
+      <MenuItem label="Attach Document" shortcut="⌘⇧K" onClick={handleAttachDocument} />
+      <MenuItem label="Attach Photo" shortcut="⌘⇧P" onClick={handleAttachPhoto} />
       {node && node.children.length > 0 && (
         <MenuItem
           label={node.collapsed ? 'Expand' : 'Collapse'}

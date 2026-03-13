@@ -11,9 +11,12 @@ export interface DeleteDialogState {
 
 interface KeyboardShortcutsOptions {
   onDeleteConfirm: (state: DeleteDialogState) => void
+  onInsertUrl: (nodeId: string) => void
+  onAttachDocument: (nodeId: string) => void
+  onAttachPhoto: (nodeId: string) => void
 }
 
-export function useKeyboardShortcuts({ onDeleteConfirm }: KeyboardShortcutsOptions) {
+export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDocument, onAttachPhoto }: KeyboardShortcutsOptions) {
   const singleSelectedNodeId = useStore((s) => s.singleSelectedNodeId)
   const document = useStore((s) => s.document)
   const executeCommand = useStore((s) => s.executeCommand)
@@ -178,6 +181,27 @@ export function useKeyboardShortcuts({ onDeleteConfirm }: KeyboardShortcutsOptio
         return
       }
 
+      // Cmd+K — insert web link
+      if (meta && !shift && e.key === 'k') {
+        e.preventDefault()
+        onInsertUrl(selectedId)
+        return
+      }
+
+      // Cmd+Shift+K — attach document
+      if (meta && shift && e.key === 'k') {
+        e.preventDefault()
+        onAttachDocument(selectedId)
+        return
+      }
+
+      // Cmd+Shift+P — attach photo
+      if (meta && shift && e.key === 'p') {
+        e.preventDefault()
+        onAttachPhoto(selectedId)
+        return
+      }
+
       // Cmd+/ — toggle fold
       if (meta && e.key === '/') {
         e.preventDefault()
@@ -191,7 +215,7 @@ export function useKeyboardShortcuts({ onDeleteConfirm }: KeyboardShortcutsOptio
         return
       }
     },
-    [editingNodeId, singleSelectedNodeId, document, executeCommand, undo, redo, select, startEditing, fitView, zoomIn, zoomOut, onDeleteConfirm]
+    [editingNodeId, singleSelectedNodeId, document, executeCommand, undo, redo, select, startEditing, fitView, zoomIn, zoomOut, onDeleteConfirm, onInsertUrl, onAttachDocument, onAttachPhoto]
   )
 
   useEffect(() => {

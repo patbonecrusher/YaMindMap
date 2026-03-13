@@ -1,7 +1,7 @@
 import type { Node, Edge } from '@xyflow/react'
 import type { Document } from '../../shared/types/document'
 import type { LayoutResult } from '../../shared/layout/types'
-import type { NodeId } from '../../shared/types/node'
+import type { NodeId, Attachment } from '../../shared/types/node'
 import { depthOf } from '../../shared/document-ops'
 import { styleForDepth, mergeStyles } from '../../shared/types/style'
 import { Color } from '../../shared/types/style'
@@ -21,6 +21,7 @@ export interface MindMapNodeData {
   isSelected: boolean
   hasAttachments: boolean
   attachmentTypes: string[]
+  attachments: Attachment[]
   collapsed: boolean
   childCount: number
   isLeftOfRoot: boolean
@@ -59,6 +60,7 @@ export function toReactFlowNodes(
         isSelected: selectedIds.has(id),
         hasAttachments: node.content.attachments.length > 0,
         attachmentTypes: node.content.attachments.map((a) => a.kind.type),
+        attachments: node.content.attachments,
         collapsed: node.collapsed,
         childCount: node.children.length,
         isLeftOfRoot: rect.x < 0 && depth > 0

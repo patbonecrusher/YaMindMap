@@ -1,10 +1,13 @@
-import { memo, useState } from 'react'
+import { memo, useState, useCallback } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { MindMapNodeData } from '../../utils/to-react-flow'
+import type { Attachment } from '../../../shared/types/node'
 import { useStore } from '../../store'
+import { RemoveAttachmentCommand } from '../../../shared/commands/attachment-commands'
 import { getNodeStyle, getDiamondContentStyle } from './node-styles'
 import { FoldBadge } from './FoldBadge'
 import { TextEditor } from './TextEditor'
+import { AttachmentIcons } from './AttachmentIcons'
 
 const hiddenHandleStyle = { opacity: 0, width: 0, height: 0, minWidth: 0, minHeight: 0 }
 
@@ -15,7 +18,21 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
   const isNewNode = useStore((s) => s.isNewNode)
   const setEditingNodeId = useStore((s) => s.setEditingNodeId)
   const setIsNewNode = useStore((s) => s.setIsNewNode)
+  const executeCommand = useStore((s) => s.executeCommand)
   const isEditing = editingNodeId === data.nodeId
+
+  const handleOpenAttachment = useCallback((attachment: Attachment) => {
+    if (attachment.kind.type === 'Url') {
+      window.api.openExternal(attachment.kind.url)
+    } else {
+      const path = attachment.kind.type === 'Document' ? attachment.kind.path : attachment.kind.path
+      window.api.openPath(path)
+    }
+  }, [])
+
+  const handleRemoveAttachment = useCallback((nodeId: string, index: number) => {
+    executeCommand(new RemoveAttachmentCommand(nodeId, index))
+  }, [executeCommand])
 
   const showFoldBadge = data.childCount > 0
   const badgeSide = data.isLeftOfRoot ? 'left' : 'right'
@@ -46,6 +63,15 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
     setIsNewNode(false)
   }
 
+  const attachmentIcons = data.hasAttachments && !isEditing ? (
+    <AttachmentIcons
+      nodeId={data.nodeId}
+      attachments={data.attachments}
+      onOpen={handleOpenAttachment}
+      onRemove={handleRemoveAttachment}
+    />
+  ) : null
+
   const editor = isEditing ? (
     <TextEditor
       nodeId={data.nodeId}
@@ -69,6 +95,7 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
         </div>
         {handles}
         {foldBadge}
+        {attachmentIcons}
         {editor}
       </div>
     )
@@ -85,6 +112,7 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
       </div>
       {handles}
       {foldBadge}
+      {attachmentIcons}
       {editor}
     </div>
   )
