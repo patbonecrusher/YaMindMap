@@ -68,6 +68,64 @@ export function useKeyboardShortcuts({ onDeleteConfirm }: KeyboardShortcutsOptio
         return
       }
 
+      // Arrow keys — navigate between nodes
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && !meta && !shift) {
+        e.preventDefault()
+
+        // No selection → select root
+        if (!selectedId) {
+          select(document.root_id)
+          return
+        }
+
+        const node = document.nodes.get(selectedId)
+        if (!node) return
+
+        switch (e.key) {
+          case 'ArrowLeft': {
+            // Select parent (unless at root)
+            if (node.parent !== null) {
+              select(node.parent)
+            }
+            break
+          }
+          case 'ArrowRight': {
+            // Expand if collapsed, otherwise select first child
+            if (node.children.length === 0) break
+            if (node.collapsed) {
+              useStore.getState().updateDocument((doc) => {
+                const n = doc.nodes.get(selectedId)
+                if (n) n.collapsed = false
+              })
+            } else {
+              select(node.children[0])
+            }
+            break
+          }
+          case 'ArrowUp': {
+            // Select previous sibling (wrap to last)
+            if (node.parent === null) break
+            const parent = document.nodes.get(node.parent)
+            if (!parent) break
+            const idx = parent.children.indexOf(selectedId)
+            const prevIdx = idx <= 0 ? parent.children.length - 1 : idx - 1
+            select(parent.children[prevIdx])
+            break
+          }
+          case 'ArrowDown': {
+            // Select next sibling (wrap to first)
+            if (node.parent === null) break
+            const par = document.nodes.get(node.parent)
+            if (!par) break
+            const i = par.children.indexOf(selectedId)
+            const nextIdx = i >= par.children.length - 1 ? 0 : i + 1
+            select(par.children[nextIdx])
+            break
+          }
+        }
+        return
+      }
+
       // Everything below requires a selected node
       if (!selectedId) return
 

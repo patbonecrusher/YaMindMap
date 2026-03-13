@@ -147,6 +147,113 @@ describe('Keyboard shortcut logic', () => {
     })
   })
 
+  describe('Arrow key navigation', () => {
+    it('ArrowLeft selects parent', () => {
+      const branchId = getFirstBranchId()
+      useStore.getState().select(branchId)
+
+      // Simulate: ArrowLeft → should select root (parent of branch)
+      const rootId = getRootId()
+      const node = useStore.getState().document.nodes.get(branchId)!
+      expect(node.parent).toBe(rootId)
+      useStore.getState().select(node.parent!)
+      expect(useStore.getState().singleSelectedNodeId()).toBe(rootId)
+    })
+
+    it('ArrowLeft on root does nothing', () => {
+      const rootId = getRootId()
+      useStore.getState().select(rootId)
+      const node = useStore.getState().document.nodes.get(rootId)!
+      expect(node.parent).toBeNull()
+      // Selection stays on root
+      expect(useStore.getState().singleSelectedNodeId()).toBe(rootId)
+    })
+
+    it('ArrowRight selects first child', () => {
+      const branchId = getFirstBranchId()
+      useStore.getState().select(branchId)
+      const branch = useStore.getState().document.nodes.get(branchId)!
+      expect(branch.children.length).toBeGreaterThan(0)
+
+      useStore.getState().select(branch.children[0])
+      expect(useStore.getState().singleSelectedNodeId()).toBe(branch.children[0])
+    })
+
+    it('ArrowRight on collapsed node expands it', () => {
+      const branchId = getFirstBranchId()
+      useStore.getState().updateDocument((doc) => {
+        const n = doc.nodes.get(branchId)
+        if (n) n.collapsed = true
+      })
+      expect(useStore.getState().document.nodes.get(branchId)!.collapsed).toBe(true)
+
+      // ArrowRight should expand, not navigate into children
+      useStore.getState().updateDocument((doc) => {
+        const n = doc.nodes.get(branchId)
+        if (n) n.collapsed = false
+      })
+      expect(useStore.getState().document.nodes.get(branchId)!.collapsed).toBe(false)
+    })
+
+    it('ArrowDown selects next sibling with wrap', () => {
+      const rootId = getRootId()
+      const root = useStore.getState().document.nodes.get(rootId)!
+      const branches = root.children
+      expect(branches.length).toBeGreaterThan(1)
+
+      // Select first branch, go down → second branch
+      useStore.getState().select(branches[0])
+      const idx = 0
+      const nextIdx = idx >= branches.length - 1 ? 0 : idx + 1
+      useStore.getState().select(branches[nextIdx])
+      expect(useStore.getState().singleSelectedNodeId()).toBe(branches[1])
+    })
+
+    it('ArrowDown wraps from last to first sibling', () => {
+      const rootId = getRootId()
+      const root = useStore.getState().document.nodes.get(rootId)!
+      const branches = root.children
+      const lastIdx = branches.length - 1
+
+      useStore.getState().select(branches[lastIdx])
+      const nextIdx = lastIdx >= branches.length - 1 ? 0 : lastIdx + 1
+      useStore.getState().select(branches[nextIdx])
+      expect(useStore.getState().singleSelectedNodeId()).toBe(branches[0])
+    })
+
+    it('ArrowUp selects previous sibling with wrap', () => {
+      const rootId = getRootId()
+      const root = useStore.getState().document.nodes.get(rootId)!
+      const branches = root.children
+      expect(branches.length).toBeGreaterThan(1)
+
+      // Select second branch, go up → first branch
+      useStore.getState().select(branches[1])
+      const idx = 1
+      const prevIdx = idx <= 0 ? branches.length - 1 : idx - 1
+      useStore.getState().select(branches[prevIdx])
+      expect(useStore.getState().singleSelectedNodeId()).toBe(branches[0])
+    })
+
+    it('ArrowUp wraps from first to last sibling', () => {
+      const rootId = getRootId()
+      const root = useStore.getState().document.nodes.get(rootId)!
+      const branches = root.children
+
+      useStore.getState().select(branches[0])
+      const idx = 0
+      const prevIdx = idx <= 0 ? branches.length - 1 : idx - 1
+      useStore.getState().select(branches[prevIdx])
+      expect(useStore.getState().singleSelectedNodeId()).toBe(branches[branches.length - 1])
+    })
+
+    it('no selection → arrow key selects root', () => {
+      expect(useStore.getState().singleSelectedNodeId()).toBeNull()
+      useStore.getState().select(getRootId())
+      expect(useStore.getState().singleSelectedNodeId()).toBe(getRootId())
+    })
+  })
+
   describe('Editing mode blocks shortcuts', () => {
     it('editingNodeId prevents shortcut processing', () => {
       useStore.getState().setEditingNodeId('some-node')
