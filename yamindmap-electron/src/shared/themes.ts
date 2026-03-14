@@ -7,6 +7,7 @@ export interface ThemePreset {
   readonly styles: DefaultStyles
   readonly edge: EdgeStyle
   readonly boundary: BoundaryStyle
+  readonly background: Color
 }
 
 export const THEME_DEFAULT_BLUE: ThemePreset = {
@@ -58,7 +59,8 @@ export const THEME_DEFAULT_BLUE: ThemePreset = {
     stroke_color: { r: 0.3, g: 0.6, b: 0.5, a: 0.5 },
     stroke_width: 1.5,
     padding: 10.0
-  }
+  },
+  background: Color.WHITE
 }
 
 export const THEME_DARK: ThemePreset = {
@@ -110,7 +112,8 @@ export const THEME_DARK: ThemePreset = {
     stroke_color: { r: 0.4, g: 0.4, b: 0.65, a: 0.7 },
     stroke_width: 1.5,
     padding: 10.0
-  }
+  },
+  background: Color.fromHex('1a1a2e')!
 }
 
 export const THEME_MINIMAL: ThemePreset = {
@@ -162,7 +165,8 @@ export const THEME_MINIMAL: ThemePreset = {
     stroke_color: { r: 0.75, g: 0.75, b: 0.75, a: 0.5 },
     stroke_width: 1.0,
     padding: 10.0
-  }
+  },
+  background: Color.fromHex('FAFAFA')!
 }
 
 export const THEME_COLORFUL: ThemePreset = {
@@ -214,7 +218,8 @@ export const THEME_COLORFUL: ThemePreset = {
     stroke_color: { r: 1.0, g: 0.7, b: 0.2, a: 0.6 },
     stroke_width: 1.5,
     padding: 10.0
-  }
+  },
+  background: Color.fromHex('FFFDF5')!
 }
 
 export const BUILT_IN_THEMES: ThemePreset[] = [

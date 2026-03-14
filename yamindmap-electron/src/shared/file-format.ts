@@ -92,6 +92,7 @@ interface DiskDocument {
     stroke_width?: number
     padding?: number
   }
+  background_color?: DiskColor
   layout_config?: {
     layout_type?: string
     direction?: string
@@ -235,6 +236,11 @@ export function parseYaMindFile(json: string): YaMindFile {
     }
   }
 
+  // Background color
+  if (diskDoc.background_color) {
+    doc.background_color = parseDiskColor(diskDoc.background_color) ?? doc.background_color
+  }
+
   // Layout config
   if (diskDoc.layout_config) {
     doc.layout_config = {
@@ -370,6 +376,7 @@ export function serializeYaMindFile(file: YaMindFile): string {
         stroke_width: doc.default_boundary_style.stroke_width,
         padding: doc.default_boundary_style.padding
       },
+      background_color: serializeColor(doc.background_color),
       layout_config: {
         layout_type: doc.layout_config.layout_type,
         direction: doc.layout_config.direction,

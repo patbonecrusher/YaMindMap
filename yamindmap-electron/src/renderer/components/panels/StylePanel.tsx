@@ -5,6 +5,7 @@ import type { BoundaryStyle } from '../../../shared/types/boundary'
 import { Color, styleForDepth, mergeStyles } from '../../../shared/types/style'
 import type { LayoutConfig } from '../../../shared/types/document'
 import { BUILT_IN_THEMES } from '../../../shared/themes'
+import { ColorPicker } from './ColorPicker'
 import { NodeStyleEditor, NodeOverrideEditor } from './NodeStyleEditor'
 import { EdgeStyleEditor } from './EdgeStyleEditor'
 import { BoundaryStyleEditor } from './BoundaryStyleEditor'
@@ -94,6 +95,7 @@ export function StylePanel() {
       d.default_styles = { ...theme.styles }
       d.default_edge_style = { ...theme.edge }
       d.default_boundary_style = { ...theme.boundary }
+      d.background_color = { ...theme.background }
       // Update all existing boundaries to match the theme
       for (const [, b] of d.boundaries) {
         b.fill_color = { ...theme.boundary.fill_color }
@@ -187,6 +189,14 @@ export function StylePanel() {
             <option key={t.name} value={t.name}>{t.name}</option>
           ))}
         </select>
+      </Section>
+
+      <Section title="Background">
+        <ColorPicker
+          label="Color"
+          value={doc.background_color}
+          onChange={(c) => updateDocument((d) => { d.background_color = c })}
+        />
       </Section>
 
       {selectedNode ? (

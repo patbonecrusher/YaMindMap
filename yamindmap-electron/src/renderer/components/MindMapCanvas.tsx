@@ -8,6 +8,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import type { Document } from '../../shared/types/document'
 import type { LayoutResult } from '../../shared/layout/types'
+import { Color } from '../../shared/types/style'
 import { useStore } from '../store'
 import { useNodeInteraction, setSuppressPaneClick } from '../hooks/useNodeInteraction'
 import { MindMapNode } from './nodes/MindMapNode'
@@ -191,7 +192,7 @@ export function MindMapCanvas({ doc, layout }: MindMapCanvasProps) {
         zoomActivationKeyCode="Meta"
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e0e0e0" />
+        <Background variant={BackgroundVariant.Dots} gap={20} size={0} color="transparent" bgColor={Color.toCss(doc.background_color)} />
       </ReactFlow>
       {rubberBandStart && rubberBandCurrent && (
         <RubberBandOverlay

@@ -1,6 +1,6 @@
 import type { MindMapNode, NodeId } from './node'
 import type { Boundary, BoundaryId, BoundaryStyle } from './boundary'
-import type { DefaultStyles, EdgeStyle } from './style'
+import type { DefaultStyles, EdgeStyle, Color } from './style'
 import { DEFAULT_STYLES, DEFAULT_EDGE_STYLE, DEFAULT_BOUNDARY_STYLE } from '../defaults'
 import { createNode } from './node'
 
@@ -21,6 +21,7 @@ export interface Document {
   default_styles: DefaultStyles
   default_edge_style: EdgeStyle
   default_boundary_style: BoundaryStyle
+  background_color: Color
   layout_config: LayoutConfig
 }
 
@@ -32,6 +33,7 @@ export function createDocument(): Document {
     default_styles: DEFAULT_STYLES,
     default_edge_style: DEFAULT_EDGE_STYLE,
     default_boundary_style: { ...DEFAULT_BOUNDARY_STYLE },
+    background_color: { r: 1, g: 1, b: 1, a: 1 },
     layout_config: {
       layout_type: 'Map',
       direction: 'Balanced',
