@@ -2,6 +2,7 @@ import { useEffect, useCallback } from 'react'
 import { useReactFlow } from '@xyflow/react'
 import { useStore } from '../store'
 import { AddChildCommand, AddSiblingCommand, DeleteNodeCommand, DeleteAndReparentCommand } from '../../shared/commands/node-commands'
+import { AddBoundaryCommand, DeleteBoundaryCommand } from '../../shared/commands/boundary-commands'
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from '../../shared/constants'
 
 export interface DeleteDialogState {
@@ -18,11 +19,14 @@ interface KeyboardShortcutsOptions {
 
 export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDocument, onAttachPhoto }: KeyboardShortcutsOptions) {
   const singleSelectedNodeId = useStore((s) => s.singleSelectedNodeId)
+  const selectedNodeIds = useStore((s) => s.selectedNodeIds)
+  const selectedBoundaryId = useStore((s) => s.selectedBoundaryId)
   const document = useStore((s) => s.document)
   const executeCommand = useStore((s) => s.executeCommand)
   const undo = useStore((s) => s.undo)
   const redo = useStore((s) => s.redo)
   const select = useStore((s) => s.select)
+  const clearSelection = useStore((s) => s.clearSelection)
   const startEditing = useStore((s) => s.startEditing)
   const editingNodeId = useStore((s) => s.editingNodeId)
   const { fitView, zoomIn, zoomOut } = useReactFlow()
@@ -70,6 +74,39 @@ export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDoc
       if (meta && e.key === '0') {
         e.preventDefault()
         fitView({ padding: 0.2, duration: 200 })
+        return
+      }
+
+      // Cmd+G — create boundary from selected nodes
+      if (meta && !shift && e.key === 'g') {
+        e.preventDefault()
+        if (selectedNodeIds.size > 0) {
+          // Check if any selected node is already in a boundary
+          const alreadyInBoundary = Array.from(document.boundaries.values()).some((b) =>
+            b.node_ids.some((nid) => selectedNodeIds.has(nid))
+          )
+          if (alreadyInBoundary) return
+
+          const nodeIds = Array.from(selectedNodeIds)
+          const allNodeIds = new Set(nodeIds)
+          for (const id of nodeIds) {
+            const node = document.nodes.get(id)
+            if (node) {
+              for (const childId of node.children) {
+                allNodeIds.add(childId)
+              }
+            }
+          }
+          executeCommand(new AddBoundaryCommand(Array.from(allNodeIds), 'Group'))
+        }
+        return
+      }
+
+      // Delete/Backspace on selected boundary
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBoundaryId) {
+        e.preventDefault()
+        executeCommand(new DeleteBoundaryCommand(selectedBoundaryId))
+        clearSelection()
         return
       }
 
@@ -217,7 +254,7 @@ export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDoc
         return
       }
     },
-    [editingNodeId, singleSelectedNodeId, document, executeCommand, undo, redo, select, startEditing, fitView, zoomIn, zoomOut, onDeleteConfirm, onInsertUrl, onAttachDocument, onAttachPhoto]
+    [editingNodeId, singleSelectedNodeId, selectedNodeIds, selectedBoundaryId, document, executeCommand, undo, redo, select, clearSelection, startEditing, fitView, zoomIn, zoomOut, onDeleteConfirm, onInsertUrl, onAttachDocument, onAttachPhoto]
   )
 
   useEffect(() => {

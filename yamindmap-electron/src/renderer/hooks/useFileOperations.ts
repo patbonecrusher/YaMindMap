@@ -1,11 +1,45 @@
 import { useEffect, useCallback, useRef } from 'react'
+import { useReactFlow } from '@xyflow/react'
 import { useStore } from '../store'
 import { parseYaMindFile, serializeYaMindFile } from '../../shared/file-format'
-import { createDemoDocument } from '../../shared/demo-document'
 import { CommandHistory } from '../../shared/commands/history'
+import { FORMAT_VERSION } from '../../shared/types/file'
+import type { ViewState } from '../../shared/types/file'
+
+function applyOpenState(content: string, filePath: string): void {
+  const parsed = parseYaMindFile(content)
+  useStore.setState({
+    document: parsed.document,
+    filePath,
+    dirty: false,
+    history: new CommandHistory(),
+    selectedNodeIds: new Set(),
+    selectedBoundaryId: null,
+    editingNodeId: null,
+    isNewNode: false,
+    pendingViewState: parsed.view_state ?? null
+  })
+
+  // Apply window size/position if available
+  if (parsed.view_state) {
+    const vs = parsed.view_state
+    if (vs.window_size) {
+      const bounds: { width: number; height: number; x?: number; y?: number } = {
+        width: vs.window_size[0],
+        height: vs.window_size[1]
+      }
+      if (vs.window_position) {
+        bounds.x = vs.window_position[0]
+        bounds.y = vs.window_position[1]
+      }
+      window.api.setWindowBounds(bounds)
+    }
+  }
+}
 
 export function useFileOperations() {
   const prevDirty = useRef<boolean>(false)
+  const { getViewport } = useReactFlow()
 
   // Sync dirty state to main process
   const dirty = useStore((s) => s.dirty)
@@ -16,22 +50,23 @@ export function useFileOperations() {
     }
   }, [dirty])
 
+  const buildViewState = useCallback(async (): Promise<ViewState> => {
+    const bounds = await window.api.getWindowBounds()
+    const viewport = getViewport()
+    return {
+      translation: [viewport.x, viewport.y],
+      scale: viewport.zoom,
+      window_size: bounds ? [bounds.width, bounds.height] : [1200, 800],
+      window_position: bounds ? [bounds.x, bounds.y] : undefined
+    }
+  }, [getViewport])
+
   const handleOpen = useCallback(async () => {
     const result = await window.api.fileOpen()
     if (!result) return
 
     try {
-      const doc = parseYaMindFile(result.content)
-      useStore.setState({
-        document: doc,
-        filePath: result.filePath,
-        dirty: false,
-        history: new CommandHistory(),
-        selectedNodeIds: new Set(),
-        selectedBoundaryId: null,
-        editingNodeId: null,
-        isNewNode: false
-      })
+      applyOpenState(result.content, result.filePath)
     } catch (err) {
       console.error('Failed to parse file:', err)
     }
@@ -39,21 +74,31 @@ export function useFileOperations() {
 
   const handleSave = useCallback(async () => {
     const state = useStore.getState()
-    const content = serializeYaMindFile(state.document)
+    const viewState = await buildViewState()
+    const content = serializeYaMindFile({
+      version: FORMAT_VERSION,
+      document: state.document,
+      view_state: viewState
+    })
     const success = await window.api.fileSave(content)
     if (success) {
       useStore.setState({ dirty: false })
     }
-  }, [])
+  }, [buildViewState])
 
   const handleSaveAs = useCallback(async () => {
     const state = useStore.getState()
-    const content = serializeYaMindFile(state.document)
+    const viewState = await buildViewState()
+    const content = serializeYaMindFile({
+      version: FORMAT_VERSION,
+      document: state.document,
+      view_state: viewState
+    })
     const success = await window.api.fileSaveAs(content)
     if (success) {
       useStore.setState({ dirty: false })
     }
-  }, [])
+  }, [buildViewState])
 
   const handleUndo = useCallback(() => {
     useStore.getState().undo()
@@ -63,19 +108,11 @@ export function useFileOperations() {
     useStore.getState().redo()
   }, [])
 
-  const handleOpenFilePath = useCallback(async (filePath: string) => {
+  const handleOpenFilePath = useCallback(async (_filePath: string) => {
     try {
       const result = await window.api.fileOpen()
       if (!result) return
-      const doc = parseYaMindFile(result.content)
-      useStore.setState({
-        document: doc,
-        filePath: result.filePath,
-        dirty: false,
-        history: new CommandHistory(),
-        selectedNodeIds: new Set(),
-        selectedBoundaryId: null
-      })
+      applyOpenState(result.content, result.filePath)
     } catch (err) {
       console.error('Failed to open file:', err)
     }

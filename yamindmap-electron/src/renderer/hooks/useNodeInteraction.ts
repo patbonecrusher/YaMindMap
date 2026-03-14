@@ -1,6 +1,12 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import type { NodeMouseHandler } from '@xyflow/react'
 import { useStore } from '../store'
+
+// Shared flag to suppress pane click after rubber-band selection
+let suppressNextPaneClick = false
+export function setSuppressPaneClick(): void {
+  suppressNextPaneClick = true
+}
 
 export function useNodeInteraction() {
   const select = useStore((s) => s.select)
@@ -43,6 +49,10 @@ export function useNodeInteraction() {
   )
 
   const onPaneClick = useCallback(() => {
+    if (suppressNextPaneClick) {
+      suppressNextPaneClick = false
+      return
+    }
     clearSelection()
     closeContextMenu()
   }, [clearSelection, closeContextMenu])

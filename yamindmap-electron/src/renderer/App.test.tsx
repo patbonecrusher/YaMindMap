@@ -11,7 +11,8 @@ describe('toReactFlowNodes', () => {
     const layout = balancedLayout(doc, sizes)
     const nodes = toReactFlowNodes(doc, layout, new Set())
 
-    expect(nodes.length).toBe(10)
+    // 10 mind map nodes + 1 boundary node
+    expect(nodes.length).toBe(11)
   })
 
   it('root node has correct data', () => {
@@ -20,7 +21,7 @@ describe('toReactFlowNodes', () => {
     const layout = balancedLayout(doc, sizes)
     const nodes = toReactFlowNodes(doc, layout, new Set())
 
-    const root = nodes.find((n) => n.data.depth === 0)!
+    const root = nodes.find((n) => n.type === 'mindMapNode' && n.data.depth === 0)!
     expect(root).toBeDefined()
     expect(root.data.label).toBe('Central Topic')
     expect(root.data.shape).toBe('Ellipse')
@@ -33,7 +34,7 @@ describe('toReactFlowNodes', () => {
     const layout = balancedLayout(doc, sizes)
     const nodes = toReactFlowNodes(doc, layout, new Set())
 
-    const branches = nodes.filter((n) => n.data.depth === 1)
+    const branches = nodes.filter((n) => n.type === 'mindMapNode' && n.data.depth === 1)
     expect(branches.length).toBe(3)
   })
 
@@ -47,7 +48,7 @@ describe('toReactFlowNodes', () => {
     const root = nodes.find((n) => n.id === doc.root_id)!
     expect(root.data.isSelected).toBe(true)
 
-    const others = nodes.filter((n) => n.id !== doc.root_id)
+    const others = nodes.filter((n) => n.id !== doc.root_id && n.type === 'mindMapNode')
     for (const n of others) {
       expect(n.data.isSelected).toBe(false)
     }

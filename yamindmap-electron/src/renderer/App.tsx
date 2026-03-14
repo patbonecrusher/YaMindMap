@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { useStore } from './store'
 import { useLayout } from './hooks/useLayout'
@@ -6,11 +6,14 @@ import { useKeyboardShortcuts, type DeleteDialogState } from './hooks/useKeyboar
 import { MindMapCanvas } from './components/MindMapCanvas'
 import { DeleteConfirmDialog } from './components/dialogs/DeleteConfirmDialog'
 import { UrlInputDialog } from './components/dialogs/UrlInputDialog'
+import { BoundaryLabelDialog } from './components/dialogs/BoundaryLabelDialog'
 import { ContextMenu } from './components/overlays/ContextMenu'
+import { BoundaryContextMenu } from './components/overlays/BoundaryContextMenu'
 import { DragOverlay } from './components/overlays/DragOverlay'
 import { useFileOperations } from './hooks/useFileOperations'
 import { AddAttachmentCommand } from '../shared/commands/attachment-commands'
 import { EditTextCommand } from '../shared/commands/node-commands'
+import { EditBoundaryLabelCommand } from '../shared/commands/boundary-commands'
 
 function AppContent() {
   const doc = useStore((s) => s.document)
@@ -22,6 +25,26 @@ function AppContent() {
   const executeCommand = useStore((s) => s.executeCommand)
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null)
   const [urlDialogNodeId, setUrlDialogNodeId] = useState<string | null>(null)
+  const [editingBoundaryId, setEditingBoundaryId] = useState<string | null>(null)
+  const [boundaryContextMenu, setBoundaryContextMenu] = useState<{ boundaryId: string; x: number; y: number } | null>(null)
+
+  // Listen for boundary events from BoundaryNode
+  useEffect(() => {
+    const handleEditLabel = (e: Event) => {
+      const boundaryId = (e as CustomEvent).detail as string
+      setEditingBoundaryId(boundaryId)
+    }
+    const handleBoundaryMenu = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { boundaryId: string; x: number; y: number }
+      setBoundaryContextMenu(detail)
+    }
+    window.addEventListener('edit-boundary-label', handleEditLabel)
+    window.addEventListener('boundary-context-menu', handleBoundaryMenu)
+    return () => {
+      window.removeEventListener('edit-boundary-label', handleEditLabel)
+      window.removeEventListener('boundary-context-menu', handleBoundaryMenu)
+    }
+  }, [])
 
   const handleDeleteConfirm = useCallback((state: DeleteDialogState) => {
     setDeleteDialog(state)
@@ -100,6 +123,15 @@ function AppContent() {
           onAttachPhoto={handleAttachPhoto}
         />
       )}
+      {boundaryContextMenu && (
+        <BoundaryContextMenu
+          x={boundaryContextMenu.x}
+          y={boundaryContextMenu.y}
+          boundaryId={boundaryContextMenu.boundaryId}
+          onClose={() => setBoundaryContextMenu(null)}
+          onEditLabel={(id) => setEditingBoundaryId(id)}
+        />
+      )}
       {deleteDialog && (
         <DeleteConfirmDialog state={deleteDialog} onClose={handleDeleteClose} />
       )}
@@ -110,6 +142,20 @@ function AppContent() {
           onClose={() => setUrlDialogNodeId(null)}
         />
       )}
+      {editingBoundaryId && (() => {
+        const boundary = doc.boundaries.get(editingBoundaryId)
+        if (!boundary) return null
+        return (
+          <BoundaryLabelDialog
+            currentLabel={boundary.label}
+            onSave={(label) => {
+              executeCommand(new EditBoundaryLabelCommand(editingBoundaryId, label))
+              setEditingBoundaryId(null)
+            }}
+            onClose={() => setEditingBoundaryId(null)}
+          />
+        )
+      })()}
     </>
   )
 }

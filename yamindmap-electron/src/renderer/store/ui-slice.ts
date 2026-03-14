@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { NodeId } from '../../shared/types/node'
+import type { ViewState } from '../../shared/types/file'
 import type { StoreState } from './index'
 
 export interface UiSlice {
@@ -11,6 +12,9 @@ export interface UiSlice {
   dropTargetNodeId: NodeId | null
   draggingNodeId: NodeId | null
   dragPosition: { x: number; y: number } | null
+  pendingViewState: ViewState | null
+  rubberBandStart: { x: number; y: number } | null
+  rubberBandCurrent: { x: number; y: number } | null
   setEditingNodeId: (id: NodeId | null) => void
   setIsNewNode: (isNew: boolean) => void
   startEditing: (id: NodeId, isNew: boolean) => void
@@ -20,6 +24,9 @@ export interface UiSlice {
   setDropTarget: (nodeId: NodeId | null) => void
   setDraggingNode: (nodeId: NodeId | null) => void
   setDragPosition: (pos: { x: number; y: number } | null) => void
+  setPendingViewState: (vs: ViewState | null) => void
+  setRubberBandStart: (pos: { x: number; y: number } | null) => void
+  setRubberBandCurrent: (pos: { x: number; y: number } | null) => void
 }
 
 export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set) => ({
@@ -31,6 +38,9 @@ export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set) =>
   dropTargetNodeId: null,
   draggingNodeId: null,
   dragPosition: null,
+  pendingViewState: null,
+  rubberBandStart: null,
+  rubberBandCurrent: null,
 
   setEditingNodeId: (id) => set({ editingNodeId: id }),
   setIsNewNode: (isNew) => set({ isNewNode: isNew }),
@@ -47,5 +57,8 @@ export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set) =>
 
   setDropTarget: (nodeId) => set({ dropTargetNodeId: nodeId }),
   setDraggingNode: (nodeId) => set({ draggingNodeId: nodeId }),
-  setDragPosition: (pos) => set({ dragPosition: pos })
+  setDragPosition: (pos) => set({ dragPosition: pos }),
+  setPendingViewState: (vs) => set({ pendingViewState: vs }),
+  setRubberBandStart: (pos) => set({ rubberBandStart: pos }),
+  setRubberBandCurrent: (pos) => set({ rubberBandCurrent: pos })
 })

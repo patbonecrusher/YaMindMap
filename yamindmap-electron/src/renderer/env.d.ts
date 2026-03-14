@@ -7,6 +7,10 @@ interface Window {
     showOpenDialogPhoto: () => Promise<string | null>
     fetchPageTitle: (url: string) => Promise<string | null>
 
+    // Window bounds
+    getWindowBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>
+    setWindowBounds: (bounds: { x?: number; y?: number; width?: number; height?: number }) => Promise<void>
+
     // File operations
     fileNew: () => Promise<void>
     fileOpen: () => Promise<{ filePath: string; content: string } | null>

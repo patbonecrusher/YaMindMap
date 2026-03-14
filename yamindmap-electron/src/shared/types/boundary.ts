@@ -6,6 +6,7 @@ export type BoundaryId = string
 export interface Boundary {
   id: BoundaryId
   label: string
+  show_label: boolean
   node_ids: NodeId[]
   fill_color: Color
   stroke_color: Color
@@ -24,6 +25,7 @@ export function createBoundary(id: BoundaryId, nodeIds: NodeId[]): Boundary {
   return {
     id,
     label: '',
+    show_label: true,
     node_ids: nodeIds,
     fill_color: { ...BOUNDARY_DEFAULTS.fill_color },
     stroke_color: { ...BOUNDARY_DEFAULTS.stroke_color },

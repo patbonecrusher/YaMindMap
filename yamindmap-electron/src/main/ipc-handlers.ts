@@ -44,6 +44,27 @@ export function registerIpcHandlers(): void {
     return result.filePaths[0]
   })
 
+  // Get window bounds (size + position)
+  ipcMain.handle('get-window-bounds', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return null
+    const bounds = win.getBounds()
+    return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
+  })
+
+  // Set window bounds (size + position)
+  ipcMain.handle('set-window-bounds', (event, bounds: { x?: number; y?: number; width?: number; height?: number }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const current = win.getBounds()
+    win.setBounds({
+      x: bounds.x ?? current.x,
+      y: bounds.y ?? current.y,
+      width: bounds.width ?? current.width,
+      height: bounds.height ?? current.height
+    })
+  })
+
   // Fetch page title from URL
   ipcMain.handle('fetch-page-title', async (_event, url: string): Promise<string | null> => {
     try {

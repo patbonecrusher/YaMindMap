@@ -26,15 +26,13 @@ export function getNodeStyle(data: MindMapNodeData, isHovered = false): CSSPrope
     userSelect: 'none'
   }
 
-  // Border
-  const strokeWidth = data.isSelected
-    ? data.strokeWidth + SELECTION_STROKE_EXTRA
-    : data.strokeWidth
-  const strokeColor = data.isSelected ? SELECTION_CSS : data.strokeColor
-  base.border = `${strokeWidth}px solid ${strokeColor}`
+  // Border — always same width to prevent text shift on selection
+  base.border = `${data.strokeWidth}px solid ${data.strokeColor}`
   base.transition = 'box-shadow 0.15s ease'
 
-  if (!data.isSelected && isHovered) {
+  if (data.isSelected) {
+    base.boxShadow = `0 0 0 ${SELECTION_STROKE_EXTRA}px ${SELECTION_CSS}`
+  } else if (isHovered) {
     base.boxShadow = `0 0 0 2px ${SELECTION_CSS}`
   }
 
@@ -53,7 +51,7 @@ export function getNodeStyle(data: MindMapNodeData, isHovered = false): CSSPrope
       break
     case 'Underline':
       base.border = 'none'
-      base.borderBottom = `${strokeWidth}px solid ${strokeColor}`
+      base.borderBottom = `${data.strokeWidth}px solid ${data.strokeColor}`
       base.borderRadius = '0'
       break
     case 'RoundedRect':

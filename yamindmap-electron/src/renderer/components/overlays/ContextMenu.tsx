@@ -5,6 +5,7 @@ import {
   AddSiblingCommand,
   DeleteNodeCommand
 } from '../../../shared/commands/node-commands'
+import { AddBoundaryCommand } from '../../../shared/commands/boundary-commands'
 import { CONTEXT_MENU_EDGE_PADDING } from '../../../shared/constants'
 
 interface ContextMenuProps {
@@ -163,6 +164,17 @@ export function ContextMenu({ x, y, targetId, onClose, onStartEdit, onDeleteConf
     onClose()
   }, [targetId, onAttachPhoto, onClose])
 
+  const isInBoundary = targetId ? Array.from(document.boundaries.values()).some((b) =>
+    b.node_ids.includes(targetId)
+  ) : false
+
+  const handleAddBoundary = useCallback(() => {
+    if (!targetId || !node || isInBoundary) return
+    const nodeIds = [targetId, ...node.children]
+    executeCommand(new AddBoundaryCommand(nodeIds, 'Group'))
+    onClose()
+  }, [targetId, node, isInBoundary, executeCommand, onClose])
+
   const handleDelete = useCallback(() => {
     if (!targetId || !node || isRoot) return
     if (node.children.length > 0) {
@@ -191,6 +203,12 @@ export function ContextMenu({ x, y, targetId, onClose, onStartEdit, onDeleteConf
       <MenuItem label="Insert Web Link" shortcut="⌘K" onClick={handleInsertUrl} />
       <MenuItem label="Attach Document" shortcut="⌘⇧K" onClick={handleAttachDocument} />
       <MenuItem label="Attach Photo" shortcut="⌘⇧P" onClick={handleAttachPhoto} />
+      {!isInBoundary && (
+        <>
+          <Separator />
+          <MenuItem label="Add Boundary" shortcut="⌘G" onClick={handleAddBoundary} />
+        </>
+      )}
       {node && node.children.length > 0 && (
         <MenuItem
           label={node.collapsed ? 'Expand' : 'Collapse'}

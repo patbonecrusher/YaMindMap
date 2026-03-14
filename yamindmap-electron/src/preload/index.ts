@@ -8,6 +8,12 @@ const api = {
   showOpenDialogPhoto: (): Promise<string | null> => ipcRenderer.invoke('show-open-dialog-photo'),
   fetchPageTitle: (url: string): Promise<string | null> => ipcRenderer.invoke('fetch-page-title', url),
 
+  // Window bounds
+  getWindowBounds: (): Promise<{ x: number; y: number; width: number; height: number } | null> =>
+    ipcRenderer.invoke('get-window-bounds'),
+  setWindowBounds: (bounds: { x?: number; y?: number; width?: number; height?: number }): Promise<void> =>
+    ipcRenderer.invoke('set-window-bounds', bounds),
+
   // File operations
   fileNew: (): Promise<void> => ipcRenderer.invoke('file-new'),
   fileOpen: (): Promise<{ filePath: string; content: string } | null> => ipcRenderer.invoke('file-open'),

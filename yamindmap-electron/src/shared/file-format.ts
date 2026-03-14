@@ -63,6 +63,7 @@ interface DiskColor {
 interface DiskBoundary {
   id: number
   label: string
+  show_label?: boolean
   node_ids: number[]
   fill_color?: DiskColor
   stroke_color?: DiskColor
@@ -189,6 +190,7 @@ export function parseYaMindFile(json: string): YaMindFile {
       doc.boundaries.set(bId, {
         id: bId,
         label: diskBoundary.label,
+        show_label: diskBoundary.show_label ?? true,
         node_ids: diskBoundary.node_ids.map((nid) => idMap.get(nid)!).filter(Boolean),
         fill_color: parseDiskColor(diskBoundary.fill_color) ?? { ...BOUNDARY_DEFAULTS.fill_color },
         stroke_color: parseDiskColor(diskBoundary.stroke_color) ?? { ...BOUNDARY_DEFAULTS.stroke_color },
@@ -318,6 +320,7 @@ export function serializeYaMindFile(file: YaMindFile): string {
     diskBoundaries[String(boundaryIdx)] = {
       id: boundaryIdx,
       label: boundary.label,
+      show_label: boundary.show_label,
       node_ids: boundary.node_ids.map((nid) => strToNum.get(nid)!).filter((n) => n !== undefined),
       fill_color: serializeColor(boundary.fill_color),
       stroke_color: serializeColor(boundary.stroke_color),
