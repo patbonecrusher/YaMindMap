@@ -1,5 +1,6 @@
 import { app, Menu, BrowserWindow } from 'electron'
 import { createWindow } from './window-manager'
+import { openFileDialog } from './file-operations'
 
 export function setupMenu(): void {
   const isMac = process.platform === 'darwin'
@@ -31,7 +32,7 @@ export function setupMenu(): void {
           label: 'Open...',
           accelerator: 'CmdOrCtrl+O',
           click: (_item, win) => {
-            if (win) win.webContents.send('menu-open')
+            openFileDialog(win ?? undefined)
           }
         },
         { type: 'separator' },

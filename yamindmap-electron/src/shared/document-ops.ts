@@ -189,6 +189,24 @@ export function isAncestorOf(doc: Document, ancestorId: NodeId, descendantId: No
 }
 
 /**
+ * Collect a node and all its descendants (BFS).
+ */
+export function collectDescendants(doc: Document, nodeId: NodeId): NodeId[] {
+  const result: NodeId[] = [nodeId]
+  const queue: NodeId[] = [nodeId]
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    const node = doc.nodes.get(current)
+    if (!node) continue
+    for (const childId of node.children) {
+      result.push(childId)
+      queue.push(childId)
+    }
+  }
+  return result
+}
+
+/**
  * Get all visible node IDs (BFS from root, skipping children of collapsed nodes).
  */
 export function visibleNodeIds(doc: Document): NodeId[] {

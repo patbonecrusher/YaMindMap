@@ -3,6 +3,7 @@ import { useReactFlow } from '@xyflow/react'
 import { useStore } from '../store'
 import { AddChildCommand, AddSiblingCommand, DeleteNodeCommand, DeleteAndReparentCommand } from '../../shared/commands/node-commands'
 import { AddBoundaryCommand, DeleteBoundaryCommand } from '../../shared/commands/boundary-commands'
+import { collectDescendants } from '../../shared/document-ops'
 import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from '../../shared/constants'
 
 export interface DeleteDialogState {
@@ -87,14 +88,10 @@ export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDoc
           )
           if (alreadyInBoundary) return
 
-          const nodeIds = Array.from(selectedNodeIds)
-          const allNodeIds = new Set(nodeIds)
-          for (const id of nodeIds) {
-            const node = document.nodes.get(id)
-            if (node) {
-              for (const childId of node.children) {
-                allNodeIds.add(childId)
-              }
+          const allNodeIds = new Set<string>()
+          for (const id of selectedNodeIds) {
+            for (const desc of collectDescendants(document, id)) {
+              allNodeIds.add(desc)
             }
           }
           executeCommand(new AddBoundaryCommand(Array.from(allNodeIds), 'Group'))

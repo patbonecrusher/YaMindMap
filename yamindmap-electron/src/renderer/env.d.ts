@@ -24,6 +24,6 @@ interface Window {
     onMenuSaveAs: (callback: () => void) => () => void
     onMenuUndo: (callback: () => void) => () => void
     onMenuRedo: (callback: () => void) => () => void
-    onOpenFile: (callback: (filePath: string) => void) => () => void
+    onOpenFile: (callback: (data: { filePath: string; content: string }) => void) => () => void
   }
 }

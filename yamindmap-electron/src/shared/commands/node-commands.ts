@@ -1,12 +1,38 @@
 import type { Command, TextUpdatable } from './command'
 import type { Document } from '../types/document'
 import type { MindMapNode, NodeId } from '../types/node'
+import type { BoundaryId } from '../types/boundary'
 import { addChild, addSibling, removeSubtree, restoreSubtree, moveNode } from '../document-ops'
+
+/** Find the boundary that contains a given node, if any */
+function findBoundaryForNode(doc: Document, nodeId: NodeId): BoundaryId | null {
+  for (const [, boundary] of doc.boundaries) {
+    if (boundary.node_ids.includes(nodeId)) return boundary.id
+  }
+  return null
+}
+
+/** Add a node to a boundary's node_ids */
+function addToBoundary(doc: Document, boundaryId: BoundaryId, nodeId: NodeId): void {
+  const boundary = doc.boundaries.get(boundaryId)
+  if (boundary && !boundary.node_ids.includes(nodeId)) {
+    boundary.node_ids.push(nodeId)
+  }
+}
+
+/** Remove a node from a boundary's node_ids */
+function removeFromBoundary(doc: Document, boundaryId: BoundaryId, nodeId: NodeId): void {
+  const boundary = doc.boundaries.get(boundaryId)
+  if (boundary) {
+    boundary.node_ids = boundary.node_ids.filter((id) => id !== nodeId)
+  }
+}
 
 export class AddChildCommand implements Command, TextUpdatable {
   readonly type = 'AddChild'
   private childId: NodeId | null = null
   private text: string
+  private boundaryId: BoundaryId | null = null
 
   constructor(
     private parentId: NodeId,
@@ -17,10 +43,18 @@ export class AddChildCommand implements Command, TextUpdatable {
 
   execute(doc: Document): void {
     this.childId = addChild(doc, this.parentId, this.text, this.childId ?? undefined)
+    // Auto-add to parent's boundary
+    this.boundaryId = findBoundaryForNode(doc, this.parentId)
+    if (this.boundaryId && this.childId) {
+      addToBoundary(doc, this.boundaryId, this.childId)
+    }
   }
 
   undo(doc: Document): void {
-    if (this.childId) removeSubtree(doc, this.childId)
+    if (this.childId) {
+      if (this.boundaryId) removeFromBoundary(doc, this.boundaryId, this.childId)
+      removeSubtree(doc, this.childId)
+    }
   }
 
   updateText(newText: string): void {
@@ -36,6 +70,7 @@ export class AddSiblingCommand implements Command, TextUpdatable {
   readonly type = 'AddSibling'
   private newId: NodeId | null = null
   private text: string
+  private boundaryId: BoundaryId | null = null
 
   constructor(
     private siblingOfId: NodeId,
@@ -46,10 +81,18 @@ export class AddSiblingCommand implements Command, TextUpdatable {
 
   execute(doc: Document): void {
     this.newId = addSibling(doc, this.siblingOfId, this.text, this.newId ?? undefined)
+    // Auto-add to sibling's boundary
+    this.boundaryId = findBoundaryForNode(doc, this.siblingOfId)
+    if (this.boundaryId && this.newId) {
+      addToBoundary(doc, this.boundaryId, this.newId)
+    }
   }
 
   undo(doc: Document): void {
-    if (this.newId) removeSubtree(doc, this.newId)
+    if (this.newId) {
+      if (this.boundaryId) removeFromBoundary(doc, this.boundaryId, this.newId)
+      removeSubtree(doc, this.newId)
+    }
   }
 
   updateText(newText: string): void {

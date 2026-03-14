@@ -43,22 +43,25 @@ export function measureNodeSizes(doc: Document, ctx?: CanvasRenderingContext2D):
       maxWidth
     )
 
-    // Measure wrapped text height
-    const usableWidth = width - 2 * paddingH - sideColumn
-    const lineHeight = fontSize * LINE_HEIGHT_FACTOR
-    const lines = Math.max(1, Math.ceil(textWidth / Math.max(usableWidth, 1)))
-    let height = lines * lineHeight + 2 * paddingV
-
     // Scale for ellipse/diamond shapes
     if (style.shape === 'Ellipse' || style.shape === 'Diamond') {
       width *= ELLIPSE_DIAMOND_SCALE
-      height *= ELLIPSE_DIAMOND_SCALE
       width = Math.max(width, minWidth)
     }
 
     // Apply manual width override
     if (node.manual_width !== null) {
       width = Math.max(node.manual_width, minWidth)
+    }
+
+    // Measure wrapped text height based on final width
+    const usableWidth = width - 2 * paddingH - sideColumn
+    const lineHeight = fontSize * LINE_HEIGHT_FACTOR
+    const lines = Math.max(1, Math.ceil(textWidth / Math.max(usableWidth, 1)))
+    let height = lines * lineHeight + 2 * paddingV
+
+    if (style.shape === 'Ellipse' || style.shape === 'Diamond') {
+      height *= ELLIPSE_DIAMOND_SCALE
     }
 
     sizes.set(id, { width, height })

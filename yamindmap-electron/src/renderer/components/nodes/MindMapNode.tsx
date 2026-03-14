@@ -37,7 +37,7 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
     executeCommand(new RemoveAttachmentCommand(nodeId, index))
   }, [executeCommand])
 
-  // Resize handle
+  // Resize handle — live resize during drag, single undo command on release
   const handleResizePointerDown = useCallback((e: React.PointerEvent) => {
     e.stopPropagation()
 
@@ -51,16 +51,40 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
       ? Array.from(state.selectedNodeIds)
       : [data.nodeId]
 
+    // Store original widths for undo
+    const originalWidths = new Map<string, number | null>()
+    for (const id of ids) {
+      const node = state.document.nodes.get(id)
+      if (node) originalWidths.set(id, node.manual_width)
+    }
+
     const handleMouseMove = (me: MouseEvent): void => {
       document.body.style.cursor = 'col-resize'
+      const delta = isLeft ? -(me.clientX - startX) : (me.clientX - startX)
+      const newWidth = Math.max(MIN_RESIZE_WIDTH, startWidth + delta)
+
+      // Live update — directly mutate document for immediate visual feedback
+      useStore.getState().updateDocument((doc) => {
+        for (const id of ids) {
+          const node = doc.nodes.get(id)
+          if (node) node.manual_width = newWidth
+        }
+      })
     }
 
     const handleMouseUp = (me: MouseEvent): void => {
       const delta = isLeft ? -(me.clientX - startX) : (me.clientX - startX)
-      const newWidth = Math.max(MIN_RESIZE_WIDTH, startWidth + delta)
+      const finalWidth = Math.max(MIN_RESIZE_WIDTH, startWidth + delta)
 
       if (Math.abs(delta) > 1) {
-        useStore.getState().executeCommand(new ResizeNodeCommand(ids, newWidth))
+        // Restore original widths first, then execute command for proper undo
+        useStore.getState().updateDocument((doc) => {
+          for (const [id, origWidth] of originalWidths) {
+            const node = doc.nodes.get(id)
+            if (node) node.manual_width = origWidth
+          }
+        })
+        useStore.getState().executeCommand(new ResizeNodeCommand(ids, finalWidth))
       }
 
       document.body.style.cursor = ''

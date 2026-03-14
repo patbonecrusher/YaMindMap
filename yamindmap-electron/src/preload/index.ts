@@ -47,8 +47,8 @@ const api = {
     ipcRenderer.on('menu-redo', handler)
     return () => ipcRenderer.removeListener('menu-redo', handler)
   },
-  onOpenFile: (callback: (filePath: string) => void): (() => void) => {
-    const handler = (_event: unknown, filePath: string): void => callback(filePath)
+  onOpenFile: (callback: (data: { filePath: string; content: string }) => void): (() => void) => {
+    const handler = (_event: unknown, data: { filePath: string; content: string }): void => callback(data)
     ipcRenderer.on('open-file', handler)
     return () => ipcRenderer.removeListener('open-file', handler)
   }

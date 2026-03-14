@@ -62,14 +62,8 @@ export function useFileOperations() {
   }, [getViewport])
 
   const handleOpen = useCallback(async () => {
-    const result = await window.api.fileOpen()
-    if (!result) return
-
-    try {
-      applyOpenState(result.content, result.filePath)
-    } catch (err) {
-      console.error('Failed to parse file:', err)
-    }
+    // Open is now handled by main process — it creates a new window
+    await window.api.fileOpen()
   }, [])
 
   const handleSave = useCallback(async () => {
@@ -108,11 +102,9 @@ export function useFileOperations() {
     useStore.getState().redo()
   }, [])
 
-  const handleOpenFilePath = useCallback(async (_filePath: string) => {
+  const handleOpenFilePath = useCallback((data: { filePath: string; content: string }) => {
     try {
-      const result = await window.api.fileOpen()
-      if (!result) return
-      applyOpenState(result.content, result.filePath)
+      applyOpenState(data.content, data.filePath)
     } catch (err) {
       console.error('Failed to open file:', err)
     }

@@ -6,6 +6,7 @@ import {
   DeleteNodeCommand
 } from '../../../shared/commands/node-commands'
 import { AddBoundaryCommand } from '../../../shared/commands/boundary-commands'
+import { collectDescendants } from '../../../shared/document-ops'
 import { CONTEXT_MENU_EDGE_PADDING } from '../../../shared/constants'
 
 interface ContextMenuProps {
@@ -170,10 +171,10 @@ export function ContextMenu({ x, y, targetId, onClose, onStartEdit, onDeleteConf
 
   const handleAddBoundary = useCallback(() => {
     if (!targetId || !node || isInBoundary) return
-    const nodeIds = [targetId, ...node.children]
+    const nodeIds = collectDescendants(document, targetId)
     executeCommand(new AddBoundaryCommand(nodeIds, 'Group'))
     onClose()
-  }, [targetId, node, isInBoundary, executeCommand, onClose])
+  }, [targetId, node, isInBoundary, document, executeCommand, onClose])
 
   const handleDelete = useCallback(() => {
     if (!targetId || !node || isRoot) return

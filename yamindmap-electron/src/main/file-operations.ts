@@ -1,6 +1,22 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
-import { readFile, writeFile } from 'fs/promises'
-import { createWindow, setWindowFilePath, setWindowDirty } from './window-manager'
+import { writeFile } from 'fs/promises'
+import { createWindow, setWindowDirty } from './window-manager'
+
+/** Show open dialog and create a new window with the selected file */
+export async function openFileDialog(parentWin?: BrowserWindow): Promise<void> {
+  const result = await dialog.showOpenDialog(parentWin ? { ...openDialogOptions } : openDialogOptions)
+  if (result.canceled || result.filePaths.length === 0) return
+  createWindow(result.filePaths[0])
+}
+
+const openDialogOptions = {
+  title: 'Open Mind Map',
+  properties: ['openFile' as const],
+  filters: [
+    { name: 'YaMindMap Files', extensions: ['yamind'] },
+    { name: 'All Files', extensions: ['*'] }
+  ]
+}
 
 export function registerFileOperations(): void {
   // New document
@@ -8,43 +24,11 @@ export function registerFileOperations(): void {
     createWindow()
   })
 
-  // Open file dialog
+  // Open file dialog — always opens in a new window
   ipcMain.handle('file-open', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return null
-
-    const result = await dialog.showOpenDialog(win, {
-      title: 'Open Mind Map',
-      properties: ['openFile'],
-      filters: [
-        { name: 'YaMindMap Files', extensions: ['yamind'] },
-        { name: 'All Files', extensions: ['*'] }
-      ]
-    })
-
-    if (result.canceled || result.filePaths.length === 0) return null
-    const filePath = result.filePaths[0]
-
-    try {
-      const content = await readFile(filePath, 'utf-8')
-      setWindowFilePath(win.id, filePath)
-      setWindowDirty(win.id, false)
-      return { filePath, content }
-    } catch (err) {
-      dialog.showErrorBox('Error', `Could not open file: ${err}`)
-      return null
-    }
-  })
-
-  // Open specific file (from Finder or argv)
-  ipcMain.handle('file-open-path', async (_event, filePath: string) => {
-    try {
-      const content = await readFile(filePath, 'utf-8')
-      return { filePath, content }
-    } catch (err) {
-      dialog.showErrorBox('Error', `Could not open file: ${err}`)
-      return null
-    }
+    await openFileDialog(win ?? undefined)
+    return null
   })
 
   // Save to current path

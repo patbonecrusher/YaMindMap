@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
+import { readFile } from 'fs/promises'
 import { is } from '@electron-toolkit/utils'
 
 interface WindowState {
@@ -28,10 +29,16 @@ export function createWindow(filePath: string | null = null): BrowserWindow {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // Send file path to renderer once ready
+  // Send file content to renderer once ready
   win.webContents.on('did-finish-load', () => {
     if (filePath) {
-      win.webContents.send('open-file', filePath)
+      readFile(filePath, 'utf-8')
+        .then((content) => {
+          win.webContents.send('open-file', { filePath, content })
+        })
+        .catch((err) => {
+          console.error('Failed to read file:', err)
+        })
     }
   })
 
