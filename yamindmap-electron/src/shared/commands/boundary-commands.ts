@@ -16,7 +16,7 @@ export class AddBoundaryCommand implements Command {
   execute(doc: Document): void {
     const id = this.boundaryId ?? crypto.randomUUID()
     this.boundaryId = id
-    const boundary = createBoundary(id, this.nodeIds)
+    const boundary = createBoundary(id, this.nodeIds, doc.default_boundary_style)
     boundary.label = this.label
     doc.boundaries.set(id, boundary)
   }

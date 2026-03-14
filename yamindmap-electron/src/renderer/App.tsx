@@ -10,6 +10,7 @@ import { BoundaryLabelDialog } from './components/dialogs/BoundaryLabelDialog'
 import { ContextMenu } from './components/overlays/ContextMenu'
 import { BoundaryContextMenu } from './components/overlays/BoundaryContextMenu'
 import { DragOverlay } from './components/overlays/DragOverlay'
+import { StylePanel } from './components/panels/StylePanel'
 import { useFileOperations } from './hooks/useFileOperations'
 import { AddAttachmentCommand } from '../shared/commands/attachment-commands'
 import { EditTextCommand } from '../shared/commands/node-commands'
@@ -18,6 +19,7 @@ import { EditBoundaryLabelCommand } from '../shared/commands/boundary-commands'
 function AppContent() {
   const doc = useStore((s) => s.document)
   const layout = useLayout(doc)
+  const stylePanelOpen = useStore((s) => s.stylePanelOpen)
   const contextMenuPosition = useStore((s) => s.contextMenuPosition)
   const contextMenuTargetId = useStore((s) => s.contextMenuTargetId)
   const closeContextMenu = useStore((s) => s.closeContextMenu)
@@ -108,8 +110,11 @@ function AppContent() {
 
   return (
     <>
-      <MindMapCanvas doc={doc} layout={layout} />
-      <DragOverlay />
+      <div style={{ position: 'absolute', inset: 0, right: stylePanelOpen ? 280 : 0 }}>
+        <MindMapCanvas doc={doc} layout={layout} />
+        <DragOverlay />
+      </div>
+      {stylePanelOpen && <StylePanel />}
       {contextMenuPosition && (
         <ContextMenu
           x={contextMenuPosition.x}

@@ -35,6 +35,13 @@ export const Color = {
     return `rgba(${r}, ${g}, ${b}, ${c.a.toFixed(2)})`
   },
 
+  toHex(c: Color): string {
+    const r = Math.round(c.r * 255).toString(16).padStart(2, '0')
+    const g = Math.round(c.g * 255).toString(16).padStart(2, '0')
+    const b = Math.round(c.b * 255).toString(16).padStart(2, '0')
+    return `#${r}${g}${b}`
+  },
+
   WHITE: { r: 1, g: 1, b: 1, a: 1 } as Color,
   BLACK: { r: 0, g: 0, b: 0, a: 1 } as Color,
   TRANSPARENT: { r: 0, g: 0, b: 0, a: 0 } as Color

@@ -166,7 +166,8 @@ export function toReactFlowEdges(
           toX: route.to.x,
           toY: route.to.y,
           color: Color.toCss(doc.default_edge_style.color),
-          width: doc.default_edge_style.width
+          width: doc.default_edge_style.width,
+          lineStyle: doc.default_edge_style.line_style
         }
       })
     }

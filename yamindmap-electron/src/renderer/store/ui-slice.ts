@@ -21,6 +21,7 @@ export interface UiSlice {
   openContextMenu: (x: number, y: number, targetId: NodeId | null) => void
   closeContextMenu: () => void
   toggleStylePanel: () => void
+  setStylePanelOpen: (open: boolean) => void
   setDropTarget: (nodeId: NodeId | null) => void
   setDraggingNode: (nodeId: NodeId | null) => void
   setDragPosition: (pos: { x: number; y: number } | null) => void
@@ -54,6 +55,8 @@ export const createUiSlice: StateCreator<StoreState, [], [], UiSlice> = (set) =>
 
   toggleStylePanel: () =>
     set((state) => ({ stylePanelOpen: !state.stylePanelOpen })),
+
+  setStylePanelOpen: (open) => set({ stylePanelOpen: open }),
 
   setDropTarget: (nodeId) => set({ dropTargetNodeId: nodeId }),
   setDraggingNode: (nodeId) => set({ draggingNodeId: nodeId }),

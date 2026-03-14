@@ -86,6 +86,12 @@ interface DiskDocument {
     color?: DiskColor
     width?: number
   }
+  default_boundary_style?: {
+    fill_color?: DiskColor
+    stroke_color?: DiskColor
+    stroke_width?: number
+    padding?: number
+  }
   layout_config?: {
     layout_type?: string
     direction?: string
@@ -218,6 +224,17 @@ export function parseYaMindFile(json: string): YaMindFile {
     }
   }
 
+  // Boundary style
+  if (diskDoc.default_boundary_style) {
+    const bs = diskDoc.default_boundary_style
+    doc.default_boundary_style = {
+      fill_color: parseDiskColor(bs.fill_color) ?? doc.default_boundary_style.fill_color,
+      stroke_color: parseDiskColor(bs.stroke_color) ?? doc.default_boundary_style.stroke_color,
+      stroke_width: bs.stroke_width ?? doc.default_boundary_style.stroke_width,
+      padding: bs.padding ?? doc.default_boundary_style.padding
+    }
+  }
+
   // Layout config
   if (diskDoc.layout_config) {
     doc.layout_config = {
@@ -346,6 +363,12 @@ export function serializeYaMindFile(file: YaMindFile): string {
         line_style: doc.default_edge_style.line_style,
         color: serializeColor(doc.default_edge_style.color),
         width: doc.default_edge_style.width
+      },
+      default_boundary_style: {
+        fill_color: serializeColor(doc.default_boundary_style.fill_color),
+        stroke_color: serializeColor(doc.default_boundary_style.stroke_color),
+        stroke_width: doc.default_boundary_style.stroke_width,
+        padding: doc.default_boundary_style.padding
       },
       layout_config: {
         layout_type: doc.layout_config.layout_type,

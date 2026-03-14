@@ -1,4 +1,5 @@
 import type { DefaultStyles, EdgeStyle, NodeStyle } from './types/style'
+import type { BoundaryStyle } from './types/boundary'
 import { Color } from './types/style'
 
 export const ROOT_STYLE: NodeStyle = {
@@ -53,4 +54,11 @@ export const DEFAULT_EDGE_STYLE: EdgeStyle = {
   line_style: 'Bezier',
   color: Color.fromHex('888888')!,
   width: 2.0
+}
+
+export const DEFAULT_BOUNDARY_STYLE: BoundaryStyle = {
+  fill_color: { r: 0.2, g: 0.45, b: 0.35, a: 0.08 },
+  stroke_color: { r: 0.3, g: 0.6, b: 0.5, a: 0.5 },
+  stroke_width: 1.5,
+  padding: 10.0
 }

@@ -99,6 +99,13 @@ export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDoc
         return
       }
 
+      // Cmd+. — toggle style panel
+      if (meta && e.key === '.') {
+        e.preventDefault()
+        useStore.getState().toggleStylePanel()
+        return
+      }
+
       // Delete/Backspace on selected boundary
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBoundaryId) {
         e.preventDefault()
