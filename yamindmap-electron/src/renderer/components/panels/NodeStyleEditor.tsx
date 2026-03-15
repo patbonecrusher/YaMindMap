@@ -4,7 +4,7 @@ import { ColorPicker } from './ColorPicker'
 import { FONT_OPTIONS } from '../../../shared/fonts'
 import { DEFAULT_FONT_FAMILY } from '../../../shared/constants'
 
-const SHAPES: NodeShape[] = ['RoundedRect', 'Ellipse', 'Diamond', 'Capsule', 'Underline']
+const SHAPES: NodeShape[] = ['RoundedRect', 'Ellipse', 'Capsule', 'Underline']
 
 interface NodeStyleEditorProps {
   styles: { root: NodeStyle; branch: NodeStyle; topic: NodeStyle }

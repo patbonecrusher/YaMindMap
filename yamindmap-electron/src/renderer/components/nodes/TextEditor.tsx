@@ -12,6 +12,7 @@ interface TextEditorProps {
   initialText: string
   isNewNode: boolean
   shape: string
+  isRoot: boolean
   fontSize: number
   fontFamily: string
   fontColor: string
@@ -21,7 +22,7 @@ interface TextEditorProps {
 
 const borderColor = Color.toCss(TEXT_EDITOR_BORDER_COLOR)
 
-export function TextEditor({ nodeId, initialText, isNewNode, shape, fontSize, fontFamily, fontColor, onCommit, onCancel }: TextEditorProps) {
+export function TextEditor({ nodeId, initialText, isNewNode, shape, isRoot, fontSize, fontFamily, fontColor, onCommit, onCancel }: TextEditorProps) {
   const ref = useRef<HTMLDivElement>(null)
   const committedRef = useRef(false)
   const executeCommand = useStore((s) => s.executeCommand)
@@ -88,7 +89,7 @@ export function TextEditor({ nodeId, initialText, isNewNode, shape, fontSize, fo
     [commit, cancel]
   )
 
-  const centered = shape === 'Ellipse' || shape === 'Diamond'
+  const centered = isRoot || shape === 'Ellipse'
 
   return (
     <div

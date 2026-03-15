@@ -14,8 +14,8 @@ export function getNodeStyle(data: MindMapNodeData, isHovered = false): CSSPrope
     lineHeight: 1.3,
     display: 'flex',
     alignItems: 'center',
-    justifyContent: data.shape === 'Ellipse' || data.shape === 'Diamond' ? 'center' : data.isLeftOfRoot ? 'flex-end' : 'flex-start',
-    textAlign: data.shape === 'Ellipse' || data.shape === 'Diamond' ? 'center' as const : data.isLeftOfRoot ? 'right' as const : 'left' as const,
+    justifyContent: data.isRoot || data.shape === 'Ellipse' ? 'center' : data.isLeftOfRoot ? 'flex-end' : 'flex-start',
+    textAlign: data.isRoot || data.shape === 'Ellipse' ? 'center' as const : data.isLeftOfRoot ? 'right' as const : 'left' as const,
     width: '100%',
     height: '100%',
     padding: data.hasAttachments ? '0 28px 0 12px' : '0 12px',
@@ -42,11 +42,6 @@ export function getNodeStyle(data: MindMapNodeData, isHovered = false): CSSPrope
     case 'Ellipse':
       base.borderRadius = '50%'
       break
-    case 'Diamond':
-      base.borderRadius = '4px'
-      base.transform = 'rotate(45deg)'
-      base.overflow = 'visible'
-      break
     case 'Capsule':
       base.borderRadius = '9999px'
       break
@@ -64,13 +59,3 @@ export function getNodeStyle(data: MindMapNodeData, isHovered = false): CSSPrope
   return base
 }
 
-export function getDiamondContentStyle(): CSSProperties {
-  return {
-    transform: 'rotate(-45deg)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    height: '100%'
-  }
-}

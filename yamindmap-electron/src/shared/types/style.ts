@@ -47,7 +47,7 @@ export const Color = {
   TRANSPARENT: { r: 0, g: 0, b: 0, a: 0 } as Color
 }
 
-export type NodeShape = 'RoundedRect' | 'Ellipse' | 'Diamond' | 'Capsule' | 'Underline'
+export type NodeShape = 'RoundedRect' | 'Ellipse' | 'Capsule' | 'Underline'
 
 export type LineStyle = 'Bezier' | 'Straight' | 'Elbow' | 'Rounded'
 

@@ -7,7 +7,7 @@ import { RemoveAttachmentCommand } from '../../../shared/commands/attachment-com
 import { ResizeNodeCommand, MoveNodeCommand } from '../../../shared/commands/node-commands'
 import { isAncestorOf } from '../../../shared/document-ops'
 import { RESIZE_HANDLE_WIDTH, MIN_RESIZE_WIDTH, DRAG_THRESHOLD } from '../../../shared/constants'
-import { getNodeStyle, getDiamondContentStyle } from './node-styles'
+import { getNodeStyle } from './node-styles'
 import { FoldBadge } from './FoldBadge'
 import { TextEditor } from './TextEditor'
 import { AttachmentIcons } from './AttachmentIcons'
@@ -253,6 +253,7 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
       initialText={data.label}
       isNewNode={isNewNode}
       shape={data.shape}
+      isRoot={data.isRoot}
       fontSize={data.fontSize}
       fontFamily={data.fontFamily}
       fontColor={data.fontColor}
@@ -271,24 +272,6 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
       zIndex: 7
     }} />
   ) : null
-
-  if (data.shape === 'Diamond') {
-    return (
-      <div style={{ position: 'relative', width: '100%', height: '100%' }} onPointerDown={handleNodePointerDown}>
-        <div style={style}>
-          <div style={getDiamondContentStyle()}>
-            {!isEditing && <span>{data.label}</span>}
-          </div>
-        </div>
-        {handles}
-        {foldBadge}
-        {attachmentIcons}
-        {resizeHandle}
-        {dropIndicator}
-        {editor}
-      </div>
-    )
-  }
 
   return (
     <div

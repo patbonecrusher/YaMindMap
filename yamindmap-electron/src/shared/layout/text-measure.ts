@@ -5,7 +5,7 @@ import type { NodeStyle } from '../types/style'
 import type { NodeSizeMap } from './types'
 import { styleForDepth, mergeStyles } from '../types/style'
 import { depthOf } from '../document-ops'
-import { SIDE_COLUMN_WIDTH, LINE_HEIGHT_FACTOR, ELLIPSE_DIAMOND_SCALE, DEFAULT_FONT_FAMILY } from '../constants'
+import { SIDE_COLUMN_WIDTH, LINE_HEIGHT_FACTOR, ELLIPSE_SCALE, DEFAULT_FONT_FAMILY } from '../constants'
 
 /**
  * Measure node sizes using an offscreen Canvas 2D context.
@@ -44,9 +44,9 @@ export function measureNodeSizes(doc: Document, ctx?: CanvasRenderingContext2D):
       maxWidth
     )
 
-    // Scale for ellipse/diamond shapes
-    if (style.shape === 'Ellipse' || style.shape === 'Diamond') {
-      width *= ELLIPSE_DIAMOND_SCALE
+    // Scale for ellipse shape
+    if (style.shape === 'Ellipse') {
+      width *= ELLIPSE_SCALE
       width = Math.max(width, minWidth)
     }
 
@@ -61,8 +61,8 @@ export function measureNodeSizes(doc: Document, ctx?: CanvasRenderingContext2D):
     const lines = Math.max(1, Math.ceil(textWidth / Math.max(usableWidth, 1)))
     let height = lines * lineHeight + 2 * paddingV
 
-    if (style.shape === 'Ellipse' || style.shape === 'Diamond') {
-      height *= ELLIPSE_DIAMOND_SCALE
+    if (style.shape === 'Ellipse') {
+      height *= ELLIPSE_SCALE
     }
 
     sizes.set(id, { width, height })

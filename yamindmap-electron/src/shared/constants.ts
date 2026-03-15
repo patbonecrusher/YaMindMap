@@ -3,7 +3,7 @@ export const SIDE_COLUMN_WIDTH = 22.0
 export const ICON_SIZE = 14.0
 export const ICON_SPACING = 4.0
 export const LINE_HEIGHT_FACTOR = 1.3
-export const ELLIPSE_DIAMOND_SCALE = 1.42
+export const ELLIPSE_SCALE = 1.42
 
 // Fold badge
 export const FOLD_BADGE_RADIUS = 8.0
