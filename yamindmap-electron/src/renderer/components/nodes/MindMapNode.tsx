@@ -24,14 +24,22 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
   const executeCommand = useStore((s) => s.executeCommand)
   const isEditing = editingNodeId === data.nodeId
 
+  const filePath = useStore((s) => s.filePath)
+
   const handleOpenAttachment = useCallback((attachment: Attachment) => {
     if (attachment.kind.type === 'Url') {
       window.api.openExternal(attachment.kind.url)
     } else {
-      const path = attachment.kind.type === 'Document' ? attachment.kind.path : attachment.kind.path
-      window.api.openPath(path)
+      const rawPath = attachment.kind.path
+      // Resolve relative paths against the document's directory
+      if (filePath && !rawPath.startsWith('/') && !rawPath.match(/^[A-Z]:\\/i)) {
+        const docDir = filePath.substring(0, filePath.lastIndexOf('/'))
+        window.api.openPath(`${docDir}/${rawPath}`)
+      } else {
+        window.api.openPath(rawPath)
+      }
     }
-  }, [])
+  }, [filePath])
 
   const handleRemoveAttachment = useCallback((nodeId: string, index: number) => {
     executeCommand(new RemoveAttachmentCommand(nodeId, index))

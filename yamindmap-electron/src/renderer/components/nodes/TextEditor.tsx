@@ -44,7 +44,7 @@ export function TextEditor({ nodeId, initialText, isNewNode, shape, fontSize, fo
     if (committedRef.current) return
     committedRef.current = true
 
-    const trimmed = (ref.current?.textContent ?? '').trim()
+    const trimmed = (ref.current?.innerText ?? '').trim()
     if (isNewNode) {
       if (trimmed === '') {
         undo()
