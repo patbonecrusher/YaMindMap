@@ -25,5 +25,15 @@ interface Window {
     onMenuUndo: (callback: () => void) => () => void
     onMenuRedo: (callback: () => void) => () => void
     onOpenFile: (callback: (data: { filePath: string; content: string }) => void) => () => void
+
+    // Window
+    closeWindow: () => void
+
+    // Settings
+    getSettings: () => Promise<{ shortcuts: unknown[]; defaultTheme: string }>
+    updateShortcuts: (shortcuts: unknown[]) => Promise<boolean>
+    resetShortcuts: () => Promise<{ shortcuts: unknown[]; defaultTheme: string }>
+    updateDefaultTheme: (themeName: string) => Promise<boolean>
+    onSettingsChanged: (callback: (settings: { shortcuts: unknown[]; defaultTheme: string }) => void) => () => void
   }
 }

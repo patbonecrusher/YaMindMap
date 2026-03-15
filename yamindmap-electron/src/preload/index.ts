@@ -51,6 +51,20 @@ const api = {
     const handler = (_event: unknown, data: { filePath: string; content: string }): void => callback(data)
     ipcRenderer.on('open-file', handler)
     return () => ipcRenderer.removeListener('open-file', handler)
+  },
+
+  // Window
+  closeWindow: (): void => ipcRenderer.send('close-window'),
+
+  // Settings
+  getSettings: (): Promise<{ shortcuts: unknown[] }> => ipcRenderer.invoke('get-settings'),
+  updateShortcuts: (shortcuts: unknown[]): Promise<boolean> => ipcRenderer.invoke('update-shortcuts', shortcuts),
+  resetShortcuts: (): Promise<{ shortcuts: unknown[]; defaultTheme: string }> => ipcRenderer.invoke('reset-shortcuts'),
+  updateDefaultTheme: (themeName: string): Promise<boolean> => ipcRenderer.invoke('update-default-theme', themeName),
+  onSettingsChanged: (callback: (settings: { shortcuts: unknown[] }) => void): (() => void) => {
+    const handler = (_event: unknown, settings: { shortcuts: unknown[] }): void => callback(settings)
+    ipcRenderer.on('settings-changed', handler)
+    return () => ipcRenderer.removeListener('settings-changed', handler)
   }
 }
 

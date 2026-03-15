@@ -2,6 +2,12 @@ import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import { net } from 'electron'
 
 export function registerIpcHandlers(): void {
+  // Close the sender's window
+  ipcMain.on('close-window', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) win.close()
+  })
+
   // Open URL in default browser
   ipcMain.handle('open-external', async (_event, url: string) => {
     await shell.openExternal(url)

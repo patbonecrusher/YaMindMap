@@ -1,6 +1,6 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { writeFile } from 'fs/promises'
-import { createWindow, setWindowDirty } from './window-manager'
+import { createWindow, setWindowDirty, setWindowFilePath } from './window-manager'
 
 /** Show open dialog and create a new window with the selected file */
 export async function openFileDialog(parentWin?: BrowserWindow): Promise<void> {

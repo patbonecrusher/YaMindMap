@@ -1,5 +1,5 @@
 import { app, Menu, BrowserWindow } from 'electron'
-import { createWindow } from './window-manager'
+import { createWindow, openSettingsWindow } from './window-manager'
 import { openFileDialog } from './file-operations'
 
 export function setupMenu(): void {
@@ -10,6 +10,12 @@ export function setupMenu(): void {
       label: app.name,
       submenu: [
         { role: 'about' as const },
+        { type: 'separator' as const },
+        {
+          label: 'Settings...',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => openSettingsWindow()
+        },
         { type: 'separator' as const },
         { role: 'services' as const },
         { type: 'separator' as const },

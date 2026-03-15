@@ -15,6 +15,7 @@ import { useFileOperations } from './hooks/useFileOperations'
 import { AddAttachmentCommand } from '../shared/commands/attachment-commands'
 import { EditTextCommand } from '../shared/commands/node-commands'
 import { EditBoundaryLabelCommand } from '../shared/commands/boundary-commands'
+import { BUILT_IN_THEMES } from '../shared/themes'
 
 function AppContent() {
   const doc = useStore((s) => s.document)
@@ -29,6 +30,28 @@ function AppContent() {
   const [urlDialogNodeId, setUrlDialogNodeId] = useState<string | null>(null)
   const [editingBoundaryId, setEditingBoundaryId] = useState<string | null>(null)
   const [boundaryContextMenu, setBoundaryContextMenu] = useState<{ boundaryId: string; x: number; y: number } | null>(null)
+
+  // Apply default theme on mount (for new documents only)
+  useEffect(() => {
+    const filePath = useStore.getState().filePath
+    if (filePath) return // File was opened, don't override its theme
+    window.api.getSettings().then((settings) => {
+      if (!settings.defaultTheme || settings.defaultTheme === 'Default Blue') return
+      const theme = BUILT_IN_THEMES.find((t) => t.name === settings.defaultTheme)
+      if (!theme) return
+      useStore.getState().updateDocument((doc) => {
+        doc.default_styles = { ...theme.styles }
+        doc.edge_style = { ...theme.edge }
+        doc.default_boundary_style = { ...theme.boundary }
+        doc.background_color = { ...theme.background }
+        for (const boundary of doc.boundaries.values()) {
+          boundary.style = { ...theme.boundary }
+        }
+      })
+      // Reset dirty since this is the initial state
+      useStore.getState().setDirty(false)
+    })
+  }, [])
 
   // Listen for boundary events from BoundaryNode
   useEffect(() => {

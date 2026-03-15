@@ -87,6 +87,38 @@ function updateWindowTitle(win: BrowserWindow): void {
   win.setTitle(`${name}${dirtyMark} — YaMindMap`)
 }
 
+let settingsWindow: BrowserWindow | null = null
+
+export function openSettingsWindow(): void {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.close()
+    return
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 780,
+    height: 680,
+    title: 'Settings — YaMindMap',
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    settingsWindow.loadURL(process.env['ELECTRON_RENDERER_URL'] + '?settings')
+  } else {
+    settingsWindow.loadFile(join(__dirname, '../renderer/index.html'), { query: { settings: '1' } })
+  }
+
+  settingsWindow.on('closed', () => {
+    settingsWindow = null
+  })
+}
+
 export function getAllWindows(): BrowserWindow[] {
   return BrowserWindow.getAllWindows()
 }

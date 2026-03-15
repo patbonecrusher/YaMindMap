@@ -1,10 +1,11 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { useReactFlow } from '@xyflow/react'
 import { useStore } from '../store'
-import { AddChildCommand, AddSiblingCommand, DeleteNodeCommand, DeleteAndReparentCommand } from '../../shared/commands/node-commands'
+import { AddChildCommand, AddSiblingCommand, DeleteNodeCommand } from '../../shared/commands/node-commands'
 import { AddBoundaryCommand, DeleteBoundaryCommand } from '../../shared/commands/boundary-commands'
 import { collectDescendants } from '../../shared/document-ops'
-import { ZOOM_IN_FACTOR, ZOOM_OUT_FACTOR } from '../../shared/constants'
+import type { ShortcutBinding, ShortcutAction } from '../../shared/shortcuts'
+import { DEFAULT_SHORTCUTS, eventMatchesBinding } from '../../shared/shortcuts'
 
 export interface DeleteDialogState {
   nodeId: string
@@ -32,6 +33,32 @@ export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDoc
   const editingNodeId = useStore((s) => s.editingNodeId)
   const { fitView, zoomIn, zoomOut } = useReactFlow()
 
+  const shortcutsRef = useRef<ShortcutBinding[]>(DEFAULT_SHORTCUTS)
+
+  // Load shortcuts from settings on mount and listen for changes
+  useEffect(() => {
+    window.api.getSettings().then((settings) => {
+      if (settings.shortcuts && Array.isArray(settings.shortcuts) && settings.shortcuts.length > 0) {
+        shortcutsRef.current = settings.shortcuts as ShortcutBinding[]
+      }
+    })
+
+    const unsubscribe = window.api.onSettingsChanged((settings) => {
+      if (settings.shortcuts && Array.isArray(settings.shortcuts) && settings.shortcuts.length > 0) {
+        shortcutsRef.current = settings.shortcuts as ShortcutBinding[]
+      }
+    })
+
+    return unsubscribe
+  }, [])
+
+  const findAction = useCallback((e: KeyboardEvent): ShortcutAction | null => {
+    for (const binding of shortcutsRef.current) {
+      if (eventMatchesBinding(e, binding)) return binding.action
+    }
+    return null
+  }, [])
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       // Don't handle shortcuts when editing text or when focus is in an input/dialog
@@ -43,78 +70,7 @@ export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDoc
       const shift = e.shiftKey
       const selectedId = singleSelectedNodeId()
 
-      // Cmd+Z — undo
-      if (meta && !shift && e.key === 'z') {
-        e.preventDefault()
-        undo()
-        return
-      }
-
-      // Cmd+Shift+Z — redo
-      if (meta && shift && e.key === 'z') {
-        e.preventDefault()
-        redo()
-        return
-      }
-
-      // Cmd+= — zoom in
-      if (meta && (e.key === '=' || e.key === '+')) {
-        e.preventDefault()
-        zoomIn({ duration: 200 })
-        return
-      }
-
-      // Cmd+- — zoom out
-      if (meta && e.key === '-') {
-        e.preventDefault()
-        zoomOut({ duration: 200 })
-        return
-      }
-
-      // Cmd+0 — zoom to fit
-      if (meta && e.key === '0') {
-        e.preventDefault()
-        fitView({ padding: 0.2, duration: 200 })
-        return
-      }
-
-      // Cmd+G — create boundary from selected nodes
-      if (meta && !shift && e.key === 'g') {
-        e.preventDefault()
-        if (selectedNodeIds.size > 0) {
-          // Check if any selected node is already in a boundary
-          const alreadyInBoundary = Array.from(document.boundaries.values()).some((b) =>
-            b.node_ids.some((nid) => selectedNodeIds.has(nid))
-          )
-          if (alreadyInBoundary) return
-
-          const allNodeIds = new Set<string>()
-          for (const id of selectedNodeIds) {
-            for (const desc of collectDescendants(document, id)) {
-              allNodeIds.add(desc)
-            }
-          }
-          executeCommand(new AddBoundaryCommand(Array.from(allNodeIds), 'Group'))
-        }
-        return
-      }
-
-      // Cmd+. — toggle style panel
-      if (meta && e.key === '.') {
-        e.preventDefault()
-        useStore.getState().toggleStylePanel()
-        return
-      }
-
-      // Delete/Backspace on selected boundary
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBoundaryId) {
-        e.preventDefault()
-        executeCommand(new DeleteBoundaryCommand(selectedBoundaryId))
-        clearSelection()
-        return
-      }
-
-      // Arrow keys — navigate between nodes
+      // Arrow keys — navigate between nodes (not customizable)
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && !meta && !shift) {
         e.preventDefault()
 
@@ -129,14 +85,12 @@ export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDoc
 
         switch (e.key) {
           case 'ArrowLeft': {
-            // Select parent (unless at root)
             if (node.parent !== null) {
               select(node.parent)
             }
             break
           }
           case 'ArrowRight': {
-            // Expand if collapsed, otherwise select first child
             if (node.children.length === 0) break
             if (node.collapsed) {
               useStore.getState().updateDocument((doc) => {
@@ -149,7 +103,6 @@ export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDoc
             break
           }
           case 'ArrowUp': {
-            // Select previous sibling (wrap to last)
             if (node.parent === null) break
             const parent = document.nodes.get(node.parent)
             if (!parent) break
@@ -159,7 +112,6 @@ export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDoc
             break
           }
           case 'ArrowDown': {
-            // Select next sibling (wrap to first)
             if (node.parent === null) break
             const par = document.nodes.get(node.parent)
             if (!par) break
@@ -172,93 +124,114 @@ export function useKeyboardShortcuts({ onDeleteConfirm, onInsertUrl, onAttachDoc
         return
       }
 
+      // Match against customizable shortcuts
+      const action = findAction(e)
+      if (!action) return
+
+      e.preventDefault()
+
+      switch (action) {
+        case 'undo':
+          undo()
+          return
+        case 'redo':
+          redo()
+          return
+        case 'zoomIn':
+          zoomIn({ duration: 200 })
+          return
+        case 'zoomOut':
+          zoomOut({ duration: 200 })
+          return
+        case 'zoomFit':
+          fitView({ padding: 0.2, duration: 200 })
+          return
+        case 'toggleStylePanel':
+          useStore.getState().toggleStylePanel()
+          return
+        case 'createBoundary': {
+          if (selectedNodeIds.size > 0) {
+            const alreadyInBoundary = Array.from(document.boundaries.values()).some((b) =>
+              b.node_ids.some((nid) => selectedNodeIds.has(nid))
+            )
+            if (alreadyInBoundary) return
+            const allNodeIds = new Set<string>()
+            for (const id of selectedNodeIds) {
+              for (const desc of collectDescendants(document, id)) {
+                allNodeIds.add(desc)
+              }
+            }
+            executeCommand(new AddBoundaryCommand(Array.from(allNodeIds), 'Group'))
+          }
+          return
+        }
+        case 'deleteNode': {
+          // Delete boundary if one is selected
+          if (selectedBoundaryId) {
+            executeCommand(new DeleteBoundaryCommand(selectedBoundaryId))
+            clearSelection()
+            return
+          }
+          if (!selectedId) return
+          const node = document.nodes.get(selectedId)
+          if (!node || node.parent === null) return
+          if (node.children.length > 0) {
+            onDeleteConfirm({ nodeId: selectedId, hasChildren: true })
+          } else {
+            executeCommand(new DeleteNodeCommand(selectedId))
+          }
+          return
+        }
+      }
+
       // Everything below requires a selected node
       if (!selectedId) return
 
-      // E — edit selected node
-      if (e.key === 'e' && !meta && !shift) {
-        e.preventDefault()
-        startEditing(selectedId, false)
-        return
-      }
-
-      // Tab — add child
-      if (e.key === 'Tab' && !meta && !shift) {
-        e.preventDefault()
-        const cmd = new AddChildCommand(selectedId, '')
-        executeCommand(cmd)
-        if (cmd.createdNodeId) {
-          select(cmd.createdNodeId)
-          startEditing(cmd.createdNodeId, true)
+      switch (action) {
+        case 'editNode':
+          startEditing(selectedId, false)
+          return
+        case 'addChild': {
+          const cmd = new AddChildCommand(selectedId, '')
+          executeCommand(cmd)
+          if (cmd.createdNodeId) {
+            select(cmd.createdNodeId)
+            startEditing(cmd.createdNodeId, true)
+          }
+          return
         }
-        return
-      }
-
-      // Enter — add sibling
-      if (e.key === 'Enter' && !meta && !shift) {
-        e.preventDefault()
-        const node = document.nodes.get(selectedId)
-        // Can't add sibling to root
-        if (!node || node.parent === null) return
-        const cmd = new AddSiblingCommand(selectedId, '')
-        executeCommand(cmd)
-        if (cmd.createdNodeId) {
-          select(cmd.createdNodeId)
-          startEditing(cmd.createdNodeId, true)
+        case 'addSibling': {
+          const node = document.nodes.get(selectedId)
+          if (!node || node.parent === null) return
+          const cmd = new AddSiblingCommand(selectedId, '')
+          executeCommand(cmd)
+          if (cmd.createdNodeId) {
+            select(cmd.createdNodeId)
+            startEditing(cmd.createdNodeId, true)
+          }
+          return
         }
-        return
-      }
-
-      // Delete/Backspace — delete node
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        e.preventDefault()
-        const node = document.nodes.get(selectedId)
-        // Can't delete root
-        if (!node || node.parent === null) return
-
-        if (node.children.length > 0) {
-          onDeleteConfirm({ nodeId: selectedId, hasChildren: true })
-        } else {
-          executeCommand(new DeleteNodeCommand(selectedId))
+        case 'insertUrl':
+          onInsertUrl(selectedId)
+          return
+        case 'attachDocument':
+          onAttachDocument(selectedId)
+          return
+        case 'attachPhoto':
+          onAttachPhoto(selectedId)
+          return
+        case 'toggleFold': {
+          const node = document.nodes.get(selectedId)
+          if (!node || node.children.length === 0) return
+          useStore.getState().updateDocument((doc) => {
+            const n = doc.nodes.get(selectedId)
+            if (n) n.collapsed = !n.collapsed
+          })
+          return
         }
-        return
-      }
-
-      // Cmd+K — insert web link
-      if (meta && !shift && e.key === 'k') {
-        e.preventDefault()
-        onInsertUrl(selectedId)
-        return
-      }
-
-      // Cmd+Shift+K — attach document
-      if (meta && shift && e.key === 'k') {
-        e.preventDefault()
-        onAttachDocument(selectedId)
-        return
-      }
-
-      // Cmd+Shift+P — attach photo
-      if (meta && shift && e.key === 'p') {
-        e.preventDefault()
-        onAttachPhoto(selectedId)
-        return
-      }
-
-      // Cmd+/ — toggle fold
-      if (meta && e.key === '/') {
-        e.preventDefault()
-        const node = document.nodes.get(selectedId)
-        if (!node || node.children.length === 0) return
-        // Toggle collapsed directly via updateDocument
-        useStore.getState().updateDocument((doc) => {
-          const n = doc.nodes.get(selectedId)
-          if (n) n.collapsed = !n.collapsed
-        })
-        return
       }
     },
-    [editingNodeId, singleSelectedNodeId, selectedNodeIds, selectedBoundaryId, document, executeCommand, undo, redo, select, clearSelection, startEditing, fitView, zoomIn, zoomOut, onDeleteConfirm, onInsertUrl, onAttachDocument, onAttachPhoto]
+    [editingNodeId, singleSelectedNodeId, selectedNodeIds, selectedBoundaryId, document, executeCommand, undo, redo, select, clearSelection, startEditing, fitView, zoomIn, zoomOut, onDeleteConfirm, onInsertUrl, onAttachDocument, onAttachPhoto, findAction]
   )
 
   useEffect(() => {

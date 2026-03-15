@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc-handlers'
 import { registerFileOperations } from './file-operations'
+import { registerSettingsIpc, loadSettings } from './settings-manager'
 import { createWindow } from './window-manager'
 import { setupMenu } from './menu'
 
@@ -22,9 +23,11 @@ app.on('open-file', (event, filePath) => {
   }
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await loadSettings()
   registerIpcHandlers()
   registerFileOperations()
+  registerSettingsIpc()
   setupMenu()
 
   // Check argv for file path (non-mac)
