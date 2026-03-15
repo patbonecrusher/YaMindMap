@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YaMindMap — Cross-Platform Mind Mapping</title>
-    <meta name="description" content="A fast, GPU-accelerated mind map application for macOS, Windows, and Linux. Built with Rust.">
+    <meta name="description" content="A fast, cross-platform mind map application for macOS, Windows, and Linux. Built with Electron and React.">
     <link rel="icon" type="image/png" href="icon.png">
     <style>
         :root {
@@ -339,7 +339,7 @@
 <section class="hero">
     <img src="icon.png" alt="YaMindMap icon" class="hero-icon">
     <h1>YaMindMap</h1>
-    <p>A blazing-fast, GPU-accelerated mind map application. Native on every platform. Built with Rust.</p>
+    <p>A fast, cross-platform mind map application. Built with Electron and React.</p>
     <div class="cta-group">
         <a href="#download" class="btn btn-primary">
             <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -366,8 +366,8 @@
     <div class="features-grid">
         <div class="feature-card">
             <div class="feature-icon">&#9889;</div>
-            <h3>GPU-Accelerated</h3>
-            <p>Native rendering via wgpu — Metal on macOS, Vulkan on Linux, DX12 on Windows. Smooth 60fps with 1000+ nodes.</p>
+            <h3>Fast &amp; Responsive</h3>
+            <p>Powered by React Flow with smooth pan, zoom, and drag. Handles large maps with ease.</p>
         </div>
         <div class="feature-card">
             <div class="feature-icon">&#127912;</div>
@@ -382,7 +382,7 @@
         <div class="feature-card">
             <div class="feature-icon">&#127760;</div>
             <h3>Truly Cross-Platform</h3>
-            <p>One codebase, native on macOS (ARM), Windows (x64/ARM), and Linux (x64/ARM). No Electron, no webview.</p>
+            <p>Built with Electron for a native feel on every platform — macOS, Windows, and Linux.</p>
         </div>
         <div class="feature-card">
             <div class="feature-icon">&#128190;</div>
@@ -400,15 +400,13 @@
 <!-- Tech -->
 <section class="tech">
     <h2>Built with Modern Tech</h2>
-    <p>No compromises on performance or portability.</p>
+    <p>Modern stack, great developer experience.</p>
     <div class="tech-badges">
-        <span class="badge">Rust</span>
-        <span class="badge">iced</span>
-        <span class="badge">wgpu</span>
-        <span class="badge">Metal</span>
-        <span class="badge">Vulkan</span>
-        <span class="badge">DX12</span>
-        <span class="badge">R-tree spatial index</span>
+        <span class="badge">Electron</span>
+        <span class="badge">React 19</span>
+        <span class="badge">TypeScript</span>
+        <span class="badge">React Flow</span>
+        <span class="badge">Zustand</span>
         <span class="badge">Bezier edge routing</span>
         <span class="badge">Command pattern undo/redo</span>
     </div>
@@ -419,30 +417,20 @@
     <h2>Download</h2>
     <p>Grab the latest release for your platform.</p>
     <div class="download-grid">
-        <a href="https://github.com/patbonecrusher/YaMindMap/releases/latest/download/YaMindMap-macos-arm64.tar.gz" class="download-card">
+        <a href="https://github.com/patricklaplante/YaMindMap/releases/latest/download/YaMindMap-macos.dmg" class="download-card">
             <div class="os-icon">&#63743;</div>
             <h3>macOS</h3>
-            <span class="arch">Apple Silicon (ARM)</span>
+            <span class="arch">DMG installer</span>
         </a>
-        <a href="https://github.com/patbonecrusher/YaMindMap/releases/latest/download/YaMindMap-windows-x64.zip" class="download-card">
+        <a href="https://github.com/patricklaplante/YaMindMap/releases/latest/download/YaMindMap-windows-setup.exe" class="download-card">
             <div class="os-icon">&#128187;</div>
             <h3>Windows</h3>
-            <span class="arch">x86_64</span>
+            <span class="arch">Installer</span>
         </a>
-        <a href="https://github.com/patbonecrusher/YaMindMap/releases/latest/download/YaMindMap-windows-arm64.zip" class="download-card">
-            <div class="os-icon">&#128187;</div>
-            <h3>Windows</h3>
-            <span class="arch">ARM64</span>
-        </a>
-        <a href="https://github.com/patbonecrusher/YaMindMap/releases/latest/download/YaMindMap-linux-x64.tar.gz" class="download-card">
+        <a href="https://github.com/patricklaplante/YaMindMap/releases/latest/download/YaMindMap-linux.AppImage" class="download-card">
             <div class="os-icon">&#128039;</div>
             <h3>Linux</h3>
-            <span class="arch">x86_64</span>
-        </a>
-        <a href="https://github.com/patbonecrusher/YaMindMap/releases/latest/download/YaMindMap-linux-arm64.tar.gz" class="download-card">
-            <div class="os-icon">&#128039;</div>
-            <h3>Linux</h3>
-            <span class="arch">ARM64</span>
+            <span class="arch">AppImage</span>
         </a>
     </div>
 </section>

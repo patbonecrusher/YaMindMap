@@ -1,8 +1,0 @@
-[package]
-name = "yamind-layout"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-yamind-core = { workspace = true }
-log = { workspace = true }
