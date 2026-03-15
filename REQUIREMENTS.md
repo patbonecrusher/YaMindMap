@@ -60,6 +60,8 @@ RichStyle: Bold | Italic | Underline | Color(u8, u8, u8) | FontSize(u16)
 | `boundaries` | `IndexMap<BoundaryId, Boundary>` | Visual groupings |
 | `default_styles` | `DefaultStyles` | Styles by depth level |
 | `default_edge_style` | `EdgeStyle` | Global edge appearance |
+| `default_boundary_style` | `BoundaryStyle` | Default style for new boundaries |
+| `background_color` | `Color` | `WHITE` — canvas background |
 | `layout_config` | `LayoutConfig` | Layout algorithm params |
 
 ### 1.6 Boundary
@@ -68,9 +70,10 @@ RichStyle: Bold | Italic | Underline | Color(u8, u8, u8) | FontSize(u16)
 |-------|------|---------|
 | `id` | `BoundaryId` (u64) | Auto-incrementing |
 | `label` | `String` | Empty string |
+| `show_label` | `bool` | `true` |
 | `node_ids` | `Vec<NodeId>` | Member nodes |
-| `fill_color` | `Color` | `rgba(0.3, 0.5, 0.8, 0.1)` — light blue transparent |
-| `stroke_color` | `Color` | `rgba(0.45, 0.65, 0.95, 0.7)` — bright blue |
+| `fill_color` | `Color` | `rgba(0.2, 0.45, 0.35, 0.08)` — teal-green transparent |
+| `stroke_color` | `Color` | `rgba(0.3, 0.6, 0.5, 0.5)` — teal-green |
 | `stroke_width` | `f32` | `1.5` |
 | `padding` | `f32` | `10.0` px |
 
@@ -133,7 +136,13 @@ All fields are `Option<T>`. Resolved by merging node style with depth default: `
 | Color | `#888888` |
 | Width | 2.0 px |
 
-**LineStyle** enum: `Bezier`, `Straight`, `Elbow`, `Rounded` (only Bezier is rendered currently)
+**LineStyle** enum: `Bezier`, `Straight`, `Elbow`, `Rounded` — all 4 fully rendered in Electron rewrite
+
+**Line style details**:
+- **Bezier**: Cubic bezier S-curve with 50% dx control point offset
+- **Straight**: Direct line from source to target
+- **Elbow**: Horizontal-vertical-horizontal orthogonal path via midpoint X
+- **Rounded**: Elbow path with rounded corners (radius = min(8, half dy, half dx)), with correct mirroring for left-side nodes
 
 ### 2.5 Selection Highlight
 
@@ -405,25 +414,38 @@ layout_children_column(children, anchor_x, center_y, h_gap, v_gap, is_left):
 1. Edit Label
 2. Delete
 
-### 7.4 Mouse — Middle Click
+### 7.4 Arrow Key Navigation
+
+| Key | Action | Notes |
+|-----|--------|-------|
+| **Arrow Left** | Select parent node | No-op at root |
+| **Arrow Right** | Select first child | Expands collapsed node first |
+| **Arrow Up** | Select previous sibling | Wraps: first sibling → last sibling |
+| **Arrow Down** | Select next sibling | Wraps: last sibling → first sibling |
+
+- If no node is selected, any arrow key selects the root node
+- Navigation respects collapsed state: Arrow Right on collapsed node expands it (doesn't navigate into children)
+- Arrow keys are not customizable (always active)
+
+### 7.5 Mouse — Middle Click
 
 - Middle-press: Begin pan
 - Middle-release: End pan
 - Cursor movement while panning: Pan viewport by cursor delta
 
-### 7.5 Mouse — Double Click
+### 7.6 Mouse — Double Click
 
 - On node: Enter text edit mode (start editing)
 - On boundary: Enter boundary label edit mode
 
-### 7.6 Scroll (Two-Finger Trackpad)
+### 7.7 Scroll (Two-Finger Trackpad)
 
 - **Normal scroll**: Pan canvas by `(dx, dy)` in screen pixels
 - **Cmd + scroll**: Zoom by `delta_y` at cursor position
   - Scroll delta lines: `y` value directly
   - Scroll delta pixels: `y / 50.0` for normalization
 
-### 7.7 Trackpad Pinch
+### 7.8 Trackpad Pinch
 
 - macOS magnification gesture: `factor = 1.0 + delta`
 - Polled every 50ms via native Obj-C handler
@@ -446,30 +468,39 @@ layout_children_column(children, anchor_x, center_y, h_gap, v_gap, is_left):
 | **Cmd+-** | Zoom out | Factor: `1/1.2`, from screen center |
 | **Cmd+0** | Zoom to fit | |
 | **Cmd+/** | Toggle fold/unfold | On all selected nodes that have children |
-| **Cmd+Shift+B** or **Cmd+B** | Add boundary | Around selected node + its children |
+| **Cmd+G** | Add boundary | Around selected nodes + all descendants |
 | **Cmd+K** | Add URL attachment | Opens URL input dialog |
 | **Cmd+Shift+K** | Add document attachment | Opens file picker |
 | **Cmd+Shift+P** or **Cmd+P** | Add photo attachment | Opens image file picker |
+| **E** | Edit selected node | Enters text editing mode |
+| **Arrow Left** | Select parent node | No-op at root |
+| **Arrow Right** | Select first child | Expands if collapsed |
+| **Arrow Up** | Select previous sibling | Wraps to last sibling |
+| **Arrow Down** | Select next sibling | Wraps to first sibling |
+| **Cmd+.** | Toggle style panel | Opens/closes right sidebar |
 | **Cmd+N** | New window | (NEW) Multi-document support |
 | **Cmd+W** | Close window | (NEW) With save confirmation if dirty |
-| **Cmd+,** | Open Settings | (NEW) Standard macOS preferences |
+| **Cmd+,** | Toggle Settings window | (NEW) Opens if closed, closes if open |
 
 ### 8.1 Customizable Shortcuts (NEW)
 
 All application-specific shortcuts (i.e. not standard macOS shortcuts like Cmd+Q, Cmd+H, Cmd+M) are user-customizable via the Settings window (see §12.5). The table above shows the **defaults**.
 
-**Customizable shortcuts** (can be rebound by user):
-- Tab, Enter, Delete/Backspace, Escape
-- Cmd+/, Cmd+B/Cmd+Shift+B, Cmd+K, Cmd+Shift+K, Cmd+Shift+P
-- Cmd+=, Cmd+-, Cmd+0
+**Customizable shortcuts** (15 actions, can be rebound by user):
+- Undo (Cmd+Z), Redo (Cmd+Shift+Z)
+- Zoom In (Cmd+=), Zoom Out (Cmd+-), Zoom to Fit (Cmd+0)
+- Add Child (Tab), Add Sibling (Enter), Edit Node (E), Delete (Backspace)
+- Toggle Fold (Cmd+/), Insert Web Link (Cmd+K), Attach Document (Cmd+Shift+K), Attach Photo (Cmd+Shift+P)
+- Create Boundary (Cmd+G), Toggle Style Panel (Cmd+.)
 
-**Non-customizable shortcuts** (standard macOS, always active):
-- Cmd+Z, Cmd+Shift+Z (Undo/Redo)
-- Cmd+N, Cmd+O, Cmd+S, Cmd+W, Cmd+Q
-- Cmd+, (Settings)
+**Non-customizable shortcuts** (standard macOS or arrow navigation):
+- Cmd+N, Cmd+O, Cmd+S, Cmd+W, Cmd+Q (window/file management)
+- Cmd+, (Settings — toggles window)
 - Cmd+H, Cmd+M (Hide, Minimize)
+- Arrow keys (node navigation — Left=parent, Right=child, Up/Down=siblings)
+- Escape (cancel edit/dialog)
 
-Customized shortcuts are persisted in a user settings file (e.g. `~/.config/yamindmap/settings.json` or Electron's `userData` directory) and apply across all windows.
+Customized shortcuts are persisted at `~/.config/yamindmap/settings.json` (macOS/Linux) or `%APPDATA%/yamindmap/settings.json` (Windows) and apply across all windows. Settings also stores the default theme for new documents.
 
 ### 8.2 Text Editor Shortcuts
 
@@ -527,8 +558,8 @@ Customized shortcuts are persisted in a user settings file (e.g. `~/.config/yami
 
 | Command | Execute | Undo |
 |---------|---------|------|
-| **AddChildCommand** | Creates child with ID (reused on redo) | Removes child |
-| **AddSiblingCommand** | Creates sibling after given node | Removes sibling |
+| **AddChildCommand** | Creates child with ID (reused on redo); auto-adds to parent's boundary | Removes child |
+| **AddSiblingCommand** | Creates sibling after given node; auto-adds to sibling's boundary | Removes sibling |
 | **DeleteNodeCommand** | Removes subtree, stores all removed nodes | Re-inserts subtree |
 | **DeleteAndReparentCommand** | Removes node, promotes children to grandparent | Reverses reparenting |
 | **EditTextCommand** | Sets node text, stores old text | Restores old text |
@@ -538,6 +569,7 @@ Customized shortcuts are persisted in a user settings file (e.g. `~/.config/yami
 | **AddBoundaryCommand** | Creates boundary with auto-ID | Removes boundary |
 | **DeleteBoundaryCommand** | Removes boundary, stores it | Re-inserts boundary |
 | **EditBoundaryLabelCommand** | Sets label, stores old | Restores old label |
+| **ResizeNodeCommand** | Sets manual_width on one or more nodes | Restores previous widths |
 
 ### 10.3 New Node Workflow
 
@@ -609,10 +641,15 @@ The Electron rewrite must support multiple documents open simultaneously, each i
 
 - Document/Photo paths stored relative to document directory when possible
 - Resolved to absolute path on open using document's directory as base
+- Resolution: if path doesn't start with `/` (or `X:\` on Windows), it is joined with the document's parent directory
 
 ### 11.6 Photo File Filter
 
-Supported extensions: `png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`
+Supported extensions: `png`, `jpg`, `jpeg`, `gif`, `bmp`, `webp`, `svg`, `tiff`, `ico`
+
+### 11.7 Document File Filter
+
+Supported extensions: `pdf`, `doc`, `docx`, `xls`, `xlsx`, `ppt`, `pptx`, `txt`, `rtf`, `csv`, `md`
 
 ---
 
@@ -657,23 +694,75 @@ Supported extensions: `png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`
 
 ### 12.5 Settings Window (NEW)
 
-Opened via **Cmd+,** (standard macOS preferences shortcut). This is a separate window, not a modal dialog — the user can keep it open while working.
+Opened via **Cmd+,** (standard macOS preferences shortcut). This is a separate window (780x640), not a modal dialog. Cmd+, toggles: opens if closed, closes if already open. Esc also closes.
 
 **Tabs**:
 
-1. **Shortcuts**
-   - Lists all customizable application shortcuts (see §8.1)
-   - Each row: action name, current key binding, click-to-record new binding
-   - Conflict detection: warn if a binding is already used by another action
-   - "Reset to Defaults" button to restore all default bindings
-   - Changes take effect immediately (no "Apply" button needed)
+1. **Theme**
+   - Default theme picker for new documents
+   - Dropdown: Default Blue, Dark, Minimal, Colorful
+   - Applied automatically when creating a new document window
 
-2. *(Future tabs — placeholder for later settings like appearance, layout defaults, etc.)*
+2. **Shortcuts**
+   - Lists all 15 customizable shortcuts (see §8.1)
+   - Each row: action name on left, current key binding button on right
+   - Click binding button to enter "recording" mode (orange highlight), press new key combo
+   - Conflict detection: red "Conflict with another shortcut" warning
+   - "Reset to Defaults" button at bottom of shortcuts list
+
+**Footer**:
+- **Cancel** button — discards changes and closes window
+- **Apply** button (blue) — saves changes and closes window
 
 **Persistence**:
-- Settings stored in Electron's `userData` directory (e.g. `~/Library/Application Support/YaMindMap/settings.json`)
+- Settings stored at `~/.config/yamindmap/settings.json` (macOS/Linux) or `%APPDATA%/yamindmap/settings.json` (Windows)
 - Loaded on app startup, applied to all windows
-- Settings window is a singleton — Cmd+, focuses it if already open
+- Changes broadcast to all open windows via IPC on save
+
+### 12.6 Style Panel (NEW)
+
+Right sidebar (280px) toggled with **Cmd+.**. Canvas viewport shrinks when panel is open (nodes don't hide behind it).
+
+**Sections (no node selected — document defaults)**:
+
+1. **Theme Preset** — dropdown: Default Blue, Dark, Minimal, Colorful, Custom. Selecting a preset applies all defaults at once. Shows "Custom" if values have been manually changed.
+2. **Background Color** — document canvas background color picker
+3. **Node Styles by Depth** — Root / Branch / Topic tabs, each with: shape, fill color, stroke color, stroke width, font size, font color, padding H/V, min/max width, corner radius
+4. **Edge Style** — line style dropdown (Bezier/Straight/Elbow/Rounded), color, width
+5. **Boundary Defaults** — fill color, stroke color, stroke width, padding. Applied to new boundaries.
+6. **Layout** — direction (Balanced/LeftOnly/RightOnly), h_gap, v_gap
+
+**Sections (node selected — per-node overrides)**:
+
+- Shows same style fields as node depth editor but with checkbox toggles
+- Unchecked = inherit from depth default. Checked = custom value for this node.
+- Changes apply immediately to the selected node
+
+**Sections (boundary selected — per-boundary styling)**:
+
+- Shows individual boundary's fill color, stroke color, stroke width, padding
+- Changes apply immediately to the selected boundary
+
+**Theme detection**: Current theme detected by comparing root shape, root fill color, and branch fill color against built-in presets. Falls back to "Custom" if no match.
+
+**Theme apply behavior**: Applying a theme updates `default_styles`, `default_edge_style`, `default_boundary_style`, `background_color`, and also updates all existing boundaries to match the new theme's boundary colors.
+
+### 12.7 Drag-to-Reparent
+
+- Drag a node past 5px threshold to begin reparent mode
+- Cursor changes to "grabbing"
+- Closest non-ancestor node highlighted as drop target (dashed orange border)
+- On release: `MoveNodeCommand` executed (appends to target's children)
+- If released without valid target: no change
+- Root node cannot be dragged
+- Drag overlay shows node label following cursor
+
+### 12.8 Rubber-Band Selection
+
+- Click and drag on empty canvas to start rubber-band selection
+- Semi-transparent blue rectangle drawn from drag start to current cursor
+- All nodes intersecting the rectangle are selected
+- Shift+drag adds to existing selection
 
 ---
 
@@ -851,13 +940,18 @@ Central Topic (root, Ellipse)
 
 ---
 
-## 21. Known Limitations / Unimplemented Features (from Rust App)
+## 21. Known Limitations / Unimplemented Features
 
-- **RoundedRect**: Actually drawn as plain rectangle (no corner radius in iced canvas)
-- **Capsule / Underline shapes**: Render identically to RoundedRect
+### Resolved in Electron Rewrite
+- ~~**RoundedRect**: Actually drawn as plain rectangle~~ — CSS `border-radius` renders correctly
+- ~~**Capsule shape**: Renders as rectangle~~ — CSS `border-radius: 9999px` renders pill shape
+- ~~**Underline shape**: Renders as rectangle~~ — CSS `border-bottom` only, transparent background
+- ~~**Line styles**: Only Bezier rendered~~ — All 4 styles (Bezier, Straight, Elbow, Rounded) implemented
+- ~~**Rubber-band selection**: Not drawn~~ — Implemented with visual rectangle
+- ~~**Drag reorder**: Partial feedback~~ — Drag-to-reparent with drop target highlight implemented
+
+### Still Unimplemented
 - **Rich text spans**: Data model exists but rendering not implemented
 - **Notes field**: Exists in data model, no UI
 - **Relationships**: Data model exists (`IndexMap<RelationshipId, Relationship>`), unused
-- **Rubber-band selection**: Interaction state exists, visual rubber-band rect not yet drawn
-- **Drag reorder**: State machine exists, visual drop target feedback partial
-- **Line styles** (Straight, Elbow, Rounded): ~~Enum defined, only Bezier rendered~~ All 4 styles now implemented in Electron rewrite
+- **Diamond shape**: Renders with CSS rotation (functional but text rendering may be imperfect at small sizes)
