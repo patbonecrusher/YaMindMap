@@ -7,6 +7,7 @@ import { depthOf } from '../../shared/document-ops'
 import { styleForDepth, mergeStyles } from '../../shared/types/style'
 import { Color } from '../../shared/types/style'
 import { edgeKey } from '../../shared/layout/types'
+import { DEFAULT_FONT_FAMILY } from '../../shared/constants'
 
 export interface MindMapNodeData {
   nodeId: string
@@ -15,6 +16,7 @@ export interface MindMapNodeData {
   fillColor: string
   strokeColor: string
   strokeWidth: number
+  fontFamily: string
   fontColor: string
   fontSize: number
   cornerRadius: number
@@ -34,9 +36,11 @@ export interface BoundaryNodeData {
   boundaryId: BoundaryId
   label: string
   showLabel: boolean
+  shape: string
   fillColor: string
   strokeColor: string
   strokeWidth: number
+  fontFamily: string
   isSelected: boolean
   boundaryWidth: number
   boundaryHeight: number
@@ -81,9 +85,11 @@ export function toReactFlowNodes(
         boundaryId: boundary.id,
         label: boundary.label,
         showLabel: boundary.show_label,
+        shape: boundary.shape ?? 'RoundedRect',
         fillColor: Color.toCss(boundary.fill_color),
         strokeColor: Color.toCss(boundary.stroke_color),
         strokeWidth: boundary.stroke_width,
+        fontFamily: boundary.font_family ?? DEFAULT_FONT_FAMILY,
         isSelected: selectedBoundaryId === boundary.id,
         boundaryWidth: bw,
         boundaryHeight: bh
@@ -115,6 +121,7 @@ export function toReactFlowNodes(
         fillColor: Color.toCss(style.fill_color!),
         strokeColor: Color.toCss(style.stroke_color!),
         strokeWidth: style.stroke_width ?? 1,
+        fontFamily: style.font_family ?? DEFAULT_FONT_FAMILY,
         fontColor: Color.toCss(style.font_color!),
         fontSize: style.font_size ?? 14,
         cornerRadius: style.corner_radius ?? 4,

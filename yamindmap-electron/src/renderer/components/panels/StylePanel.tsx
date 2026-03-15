@@ -22,7 +22,8 @@ const panelStyle: React.CSSProperties = {
   height: '100%',
   backgroundColor: '#2c2c2e',
   borderLeft: '1px solid #444',
-  overflowY: 'auto',
+  display: 'flex',
+  flexDirection: 'column',
   zIndex: 50,
   fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   color: '#ddd',
@@ -34,7 +35,23 @@ const headerStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   alignItems: 'center',
   padding: '10px 12px',
-  borderBottom: '1px solid #444'
+  borderBottom: '1px solid #444',
+  flexShrink: 0,
+  backgroundColor: '#2c2c2e'
+}
+
+const scrollAreaStyle: React.CSSProperties = {
+  flex: 1,
+  overflowY: 'auto'
+}
+
+const contextBarStyle: React.CSSProperties = {
+  padding: '6px 12px',
+  fontSize: 11,
+  color: '#888',
+  backgroundColor: '#262628',
+  borderBottom: '1px solid #3a3a3c',
+  flexShrink: 0
 }
 
 const sectionHeaderStyle: React.CSSProperties = {
@@ -98,10 +115,12 @@ export function StylePanel() {
       d.background_color = { ...theme.background }
       // Update all existing boundaries to match the theme
       for (const [, b] of d.boundaries) {
+        b.shape = theme.boundary.shape
         b.fill_color = { ...theme.boundary.fill_color }
         b.stroke_color = { ...theme.boundary.stroke_color }
         b.stroke_width = theme.boundary.stroke_width
         b.padding = theme.boundary.padding
+        b.font_family = theme.boundary.font_family
       }
     })
   }, [updateDocument])
@@ -121,6 +140,15 @@ export function StylePanel() {
   const handleBoundaryChange = useCallback((style: BoundaryStyle) => {
     updateDocument((d) => {
       d.default_boundary_style = style
+      // Propagate to all existing boundaries
+      for (const [, b] of d.boundaries) {
+        b.shape = style.shape
+        b.fill_color = { ...style.fill_color }
+        b.stroke_color = { ...style.stroke_color }
+        b.stroke_width = style.stroke_width
+        b.padding = style.padding
+        b.font_family = style.font_family
+      }
     })
   }, [updateDocument])
 
@@ -129,10 +157,12 @@ export function StylePanel() {
     updateDocument((d) => {
       const b = d.boundaries.get(selectedBoundaryId)
       if (b) {
+        b.shape = style.shape
         b.fill_color = style.fill_color
         b.stroke_color = style.stroke_color
         b.stroke_width = style.stroke_width
         b.padding = style.padding
+        b.font_family = style.font_family
       }
     })
   }, [selectedBoundaryId, updateDocument])
@@ -173,8 +203,16 @@ export function StylePanel() {
   const selectedDepth = selectedId ? depthOf(doc, selectedId) : 0
   const selectedDefault = styleForDepth(doc.default_styles, selectedDepth)
 
+  // Determine context subtitle
+  const subtitle = selectedBoundary
+    ? `Boundary: ${selectedBoundary.label || 'untitled'}`
+    : selectedNode
+      ? `Node: ${selectedNode.content.text.slice(0, 20) || 'untitled'}`
+      : null
+
   return (
     <div style={panelStyle}>
+      {/* Permanent container header — always identical regardless of selection */}
       <div style={headerStyle}>
         <span style={{ fontWeight: 600 }}>Style</span>
         <button onClick={() => setStylePanelOpen(false)} style={closeButtonStyle}>
@@ -182,57 +220,62 @@ export function StylePanel() {
         </button>
       </div>
 
-      <Section title="Theme Preset">
-        <select value={currentThemeName} onChange={handleApplyTheme} style={selectStyle}>
-          <option value="">Custom</option>
-          {BUILT_IN_THEMES.map((t) => (
-            <option key={t.name} value={t.name}>{t.name}</option>
-          ))}
-        </select>
-      </Section>
+      {/* Context bar — shows what's selected */}
+      {subtitle && <div style={contextBarStyle}>{subtitle}</div>}
 
-      <Section title="Background">
-        <ColorPicker
-          label="Color"
-          value={doc.background_color}
-          onChange={(c) => updateDocument((d) => { d.background_color = c })}
-        />
-      </Section>
+      <div style={scrollAreaStyle}>
+        {selectedBoundary ? (
+          <Section title="Boundary Style">
+            <BoundaryStyleEditor style={selectedBoundary} onChange={handleSelectedBoundaryChange} />
+          </Section>
+        ) : selectedNode ? (
+          <Section title="Node Override">
+            <NodeOverrideEditor
+              nodeStyle={selectedNode.style}
+              defaultStyle={selectedDefault}
+              onChange={handleNodeOverrideChange}
+            />
+          </Section>
+        ) : (
+          <>
+            <Section title="Theme Preset">
+              <select value={currentThemeName} onChange={handleApplyTheme} style={selectStyle}>
+                <option value="">Custom</option>
+                {BUILT_IN_THEMES.map((t) => (
+                  <option key={t.name} value={t.name}>{t.name}</option>
+                ))}
+              </select>
+            </Section>
 
-      {selectedNode ? (
-        <Section title={`Node Override (${selectedNode.content.text.slice(0, 20) || 'untitled'})`}>
-          <NodeOverrideEditor
-            nodeStyle={selectedNode.style}
-            defaultStyle={selectedDefault}
-            onChange={handleNodeOverrideChange}
-          />
-        </Section>
-      ) : (
-        <Section title="Node Styles">
-          <NodeStyleEditor
-            styles={doc.default_styles}
-            onChange={handleStyleChange}
-          />
-        </Section>
-      )}
+            <Section title="Background">
+              <ColorPicker
+                label="Color"
+                value={doc.background_color}
+                onChange={(c) => updateDocument((d) => { d.background_color = c })}
+              />
+            </Section>
 
-      <Section title="Edges">
-        <EdgeStyleEditor style={doc.default_edge_style} onChange={handleEdgeChange} />
-      </Section>
+            <Section title="Node Styles">
+              <NodeStyleEditor
+                styles={doc.default_styles}
+                onChange={handleStyleChange}
+              />
+            </Section>
 
-      {selectedBoundary ? (
-        <Section title={`Boundary (${selectedBoundary.label || 'untitled'})`}>
-          <BoundaryStyleEditor style={selectedBoundary} onChange={handleSelectedBoundaryChange} />
-        </Section>
-      ) : (
-        <Section title="Boundary Defaults">
-          <BoundaryStyleEditor style={doc.default_boundary_style} onChange={handleBoundaryChange} />
-        </Section>
-      )}
+            <Section title="Edges">
+              <EdgeStyleEditor style={doc.default_edge_style} onChange={handleEdgeChange} />
+            </Section>
 
-      <Section title="Layout">
-        <LayoutConfigEditor config={doc.layout_config} onChange={handleLayoutChange} />
-      </Section>
+            <Section title="Boundary Defaults">
+              <BoundaryStyleEditor style={doc.default_boundary_style} onChange={handleBoundaryChange} />
+            </Section>
+
+            <Section title="Layout">
+              <LayoutConfigEditor config={doc.layout_config} onChange={handleLayoutChange} />
+            </Section>
+          </>
+        )}
+      </div>
     </div>
   )
 }

@@ -10,7 +10,7 @@ export function getNodeStyle(data: MindMapNodeData, isHovered = false): CSSPrope
     backgroundColor: data.fillColor,
     color: data.fontColor,
     fontSize: `${data.fontSize}px`,
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontFamily: data.fontFamily,
     lineHeight: 1.3,
     display: 'flex',
     alignItems: 'center',

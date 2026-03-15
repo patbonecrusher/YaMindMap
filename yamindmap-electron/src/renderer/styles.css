@@ -1,0 +1,6 @@
+/* Number input spinner — add left margin so digits don't overlap arrows,
+   and increase height so up/down buttons have more room between them */
+input[type="number"]::-webkit-inner-spin-button {
+  margin-left: 8px;
+  height: 1.4em;
+}

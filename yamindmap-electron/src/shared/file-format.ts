@@ -8,6 +8,7 @@ import { createNode } from './types/node'
 import { createDocument } from './types/document'
 import { BOUNDARY_DEFAULTS } from './types/boundary'
 import { DEFAULT_STYLES, DEFAULT_EDGE_STYLE } from './defaults'
+import { DEFAULT_FONT_FAMILY } from './constants'
 import { FORMAT_VERSION } from './types/file'
 
 // --- On-disk format types (u64 IDs, arrays instead of Maps) ---
@@ -65,10 +66,12 @@ interface DiskBoundary {
   label: string
   show_label?: boolean
   node_ids: number[]
+  shape?: string
   fill_color?: DiskColor
   stroke_color?: DiskColor
   stroke_width?: number
   padding?: number
+  font_family?: string
 }
 
 interface DiskDocument {
@@ -91,6 +94,7 @@ interface DiskDocument {
     stroke_color?: DiskColor
     stroke_width?: number
     padding?: number
+    font_family?: string
   }
   background_color?: DiskColor
   layout_config?: {
@@ -199,10 +203,12 @@ export function parseYaMindFile(json: string): YaMindFile {
         label: diskBoundary.label,
         show_label: diskBoundary.show_label ?? true,
         node_ids: diskBoundary.node_ids.map((nid) => idMap.get(nid)!).filter(Boolean),
+        shape: diskBoundary.shape ?? BOUNDARY_DEFAULTS.shape,
         fill_color: parseDiskColor(diskBoundary.fill_color) ?? { ...BOUNDARY_DEFAULTS.fill_color },
         stroke_color: parseDiskColor(diskBoundary.stroke_color) ?? { ...BOUNDARY_DEFAULTS.stroke_color },
         stroke_width: diskBoundary.stroke_width ?? BOUNDARY_DEFAULTS.stroke_width,
-        padding: diskBoundary.padding ?? BOUNDARY_DEFAULTS.padding
+        padding: diskBoundary.padding ?? BOUNDARY_DEFAULTS.padding,
+        font_family: diskBoundary.font_family ?? DEFAULT_FONT_FAMILY
       })
     }
   }
@@ -229,10 +235,12 @@ export function parseYaMindFile(json: string): YaMindFile {
   if (diskDoc.default_boundary_style) {
     const bs = diskDoc.default_boundary_style
     doc.default_boundary_style = {
+      shape: bs.shape ?? doc.default_boundary_style.shape,
       fill_color: parseDiskColor(bs.fill_color) ?? doc.default_boundary_style.fill_color,
       stroke_color: parseDiskColor(bs.stroke_color) ?? doc.default_boundary_style.stroke_color,
       stroke_width: bs.stroke_width ?? doc.default_boundary_style.stroke_width,
-      padding: bs.padding ?? doc.default_boundary_style.padding
+      padding: bs.padding ?? doc.default_boundary_style.padding,
+      font_family: bs.font_family ?? doc.default_boundary_style.font_family
     }
   }
 
@@ -345,10 +353,12 @@ export function serializeYaMindFile(file: YaMindFile): string {
       label: boundary.label,
       show_label: boundary.show_label,
       node_ids: boundary.node_ids.map((nid) => strToNum.get(nid)!).filter((n) => n !== undefined),
+      shape: boundary.shape,
       fill_color: serializeColor(boundary.fill_color),
       stroke_color: serializeColor(boundary.stroke_color),
       stroke_width: boundary.stroke_width,
-      padding: boundary.padding
+      padding: boundary.padding,
+      font_family: boundary.font_family
     }
     boundaryIdx++
   }
@@ -371,10 +381,12 @@ export function serializeYaMindFile(file: YaMindFile): string {
         width: doc.default_edge_style.width
       },
       default_boundary_style: {
+        shape: doc.default_boundary_style.shape,
         fill_color: serializeColor(doc.default_boundary_style.fill_color),
         stroke_color: serializeColor(doc.default_boundary_style.stroke_color),
         stroke_width: doc.default_boundary_style.stroke_width,
-        padding: doc.default_boundary_style.padding
+        padding: doc.default_boundary_style.padding,
+        font_family: doc.default_boundary_style.font_family
       },
       background_color: serializeColor(doc.background_color),
       layout_config: {

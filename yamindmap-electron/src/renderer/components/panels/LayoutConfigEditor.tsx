@@ -30,7 +30,7 @@ const selectStyle: React.CSSProperties = {
 
 const numberStyle: React.CSSProperties = {
   ...selectStyle,
-  width: 50,
+  width: 56,
   textAlign: 'right' as const
 }
 

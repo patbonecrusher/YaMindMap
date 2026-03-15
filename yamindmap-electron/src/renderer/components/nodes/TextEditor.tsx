@@ -13,6 +13,7 @@ interface TextEditorProps {
   isNewNode: boolean
   shape: string
   fontSize: number
+  fontFamily: string
   fontColor: string
   onCommit: () => void
   onCancel: () => void
@@ -20,7 +21,7 @@ interface TextEditorProps {
 
 const borderColor = Color.toCss(TEXT_EDITOR_BORDER_COLOR)
 
-export function TextEditor({ nodeId, initialText, isNewNode, shape, fontSize, fontColor, onCommit, onCancel }: TextEditorProps) {
+export function TextEditor({ nodeId, initialText, isNewNode, shape, fontSize, fontFamily, fontColor, onCommit, onCancel }: TextEditorProps) {
   const ref = useRef<HTMLDivElement>(null)
   const committedRef = useRef(false)
   const executeCommand = useStore((s) => s.executeCommand)
@@ -116,7 +117,7 @@ export function TextEditor({ nodeId, initialText, isNewNode, shape, fontSize, fo
           outline: 'none',
           color: fontColor,
           fontSize: `${fontSize}px`,
-          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          fontFamily,
           lineHeight: 1.3,
           textAlign: centered ? 'center' : 'left',
           cursor: 'text',

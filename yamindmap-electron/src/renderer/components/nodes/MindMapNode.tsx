@@ -254,6 +254,7 @@ function MindMapNodeComponent({ data }: NodeProps & { data: MindMapNodeData }) {
       isNewNode={isNewNode}
       shape={data.shape}
       fontSize={data.fontSize}
+      fontFamily={data.fontFamily}
       fontColor={data.fontColor}
       onCommit={handleCommit}
       onCancel={handleCancel}

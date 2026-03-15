@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react'
 import type { NodeStyle, NodeShape, Color } from '../../../shared/types/style'
 import { ColorPicker } from './ColorPicker'
+import { FONT_OPTIONS } from '../../../shared/fonts'
+import { DEFAULT_FONT_FAMILY } from '../../../shared/constants'
 
 const SHAPES: NodeShape[] = ['RoundedRect', 'Ellipse', 'Diamond', 'Capsule', 'Underline']
 
@@ -45,7 +47,7 @@ const selectStyle: React.CSSProperties = {
 
 const numberStyle: React.CSSProperties = {
   ...selectStyle,
-  width: 50,
+  width: 56,
   textAlign: 'right' as const
 }
 
@@ -114,6 +116,17 @@ function DepthStyleEditor({ style, onChange }: { style: NodeStyle; onChange: (s:
         </select>
       </div>
 
+      <div style={rowStyle}>
+        <span style={labelStyle}>Font</span>
+        <select
+          value={style.font_family ?? DEFAULT_FONT_FAMILY}
+          onChange={(e) => update('font_family', e.target.value)}
+          style={selectStyle}
+        >
+          {FONT_OPTIONS.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
+        </select>
+      </div>
+
       {style.fill_color && (
         <ColorPicker label="Fill" value={style.fill_color} onChange={(c) => update('fill_color', c)} />
       )}
@@ -178,8 +191,9 @@ export function NodeOverrideEditor({ nodeStyle, defaultStyle, onChange }: NodeOv
     onChange({ ...nodeStyle, [key]: value })
   }, [nodeStyle, onChange])
 
-  const fields: { key: keyof NodeStyle; label: string; type: 'shape' | 'color' | 'number' }[] = [
+  const fields: { key: keyof NodeStyle; label: string; type: 'shape' | 'color' | 'number' | 'font' }[] = [
     { key: 'shape', label: 'Shape', type: 'shape' },
+    { key: 'font_family', label: 'Font', type: 'font' },
     { key: 'fill_color', label: 'Fill', type: 'color' },
     { key: 'stroke_color', label: 'Stroke', type: 'color' },
     { key: 'font_color', label: 'Font Color', type: 'color' },
@@ -218,6 +232,16 @@ export function NodeOverrideEditor({ nodeStyle, defaultStyle, onChange }: NodeOv
             )}
             {type === 'color' && value && (
               <ColorPicker label="" value={value as Color} onChange={(c) => update(key as 'fill_color', c)} />
+            )}
+            {type === 'font' && (
+              <select
+                value={(value as string) ?? DEFAULT_FONT_FAMILY}
+                onChange={(e) => update('font_family', e.target.value)}
+                disabled={!hasOverride}
+                style={selectStyle}
+              >
+                {FONT_OPTIONS.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
+              </select>
             )}
             {type === 'number' && (
               <input

@@ -5,7 +5,7 @@ import type { NodeStyle } from '../types/style'
 import type { NodeSizeMap } from './types'
 import { styleForDepth, mergeStyles } from '../types/style'
 import { depthOf } from '../document-ops'
-import { SIDE_COLUMN_WIDTH, LINE_HEIGHT_FACTOR, ELLIPSE_DIAMOND_SCALE } from '../constants'
+import { SIDE_COLUMN_WIDTH, LINE_HEIGHT_FACTOR, ELLIPSE_DIAMOND_SCALE, DEFAULT_FONT_FAMILY } from '../constants'
 
 /**
  * Measure node sizes using an offscreen Canvas 2D context.
@@ -31,7 +31,8 @@ export function measureNodeSizes(doc: Document, ctx?: CanvasRenderingContext2D):
     // Measure text width
     let textWidth: number
     if (ctx) {
-      ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
+      const fontFamily = style.font_family ?? DEFAULT_FONT_FAMILY
+      ctx.font = `${fontSize}px ${fontFamily}`
       textWidth = ctx.measureText(node.content.text).width
     } else {
       // Approximation for testing: ~0.6 * fontSize per character

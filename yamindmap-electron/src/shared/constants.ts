@@ -66,5 +66,8 @@ export const FOLD_EXPANDED_HOVER_COLOR = { r: 0.4, g: 0.4, b: 0.45, a: 1.0 }
 export const FOLD_COLLAPSED_FONT_SIZE = 11.0
 export const FOLD_EXPANDED_FONT_SIZE = 13.0
 
+// Font
+export const DEFAULT_FONT_FAMILY = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
 // Context menu
 export const CONTEXT_MENU_EDGE_PADDING = 200
